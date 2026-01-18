@@ -1,0 +1,1 @@
+int8 state # 0:Active, 1:Out of Bounds, 2:Restart
