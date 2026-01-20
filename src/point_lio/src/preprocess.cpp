@@ -109,6 +109,7 @@ void Preprocess::process_cut_frame_livox(const livox_ros_driver2::msg::CustomMsg
         ((msg->points[i].tag & 0x30) == 0x10 || (msg->points[i].tag & 0x30) == 0x00))
         {
             valid_point_num++;
+            //按照point_filter_num均匀抽样
             if (valid_point_num % point_filter_num == 0) {
                 pl_full[i].x = msg->points[i].x;
                 pl_full[i].y = msg->points[i].y;
@@ -119,7 +120,7 @@ void Preprocess::process_cut_frame_livox(const livox_ros_driver2::msg::CustomMsg
 
                 double dist = pl_full[i].x * pl_full[i].x + pl_full[i].y * pl_full[i].y + pl_full[i].z * pl_full[i].z;
                 if (dist < blind * blind) continue;
-
+                //去除重复点
                 if ((abs(pl_full[i].x - pl_full[i - 1].x) > 1e-7)
                     || (abs(pl_full[i].y - pl_full[i - 1].y) > 1e-7)
                     || (abs(pl_full[i].z - pl_full[i - 1].z) > 1e-7)) {
@@ -134,11 +135,12 @@ void Preprocess::process_cut_frame_livox(const livox_ros_driver2::msg::CustomMsg
     uint valid_num = 0;
     uint cut_num = 0;
     uint valid_pcl_size = pl_surf.points.size();
-
+    //required_frame_num默认为1
     int required_cut_num = required_frame_num;
     if (scan_count < 5)
         required_cut_num = 1;
 
+    //切分点云
     PointCloudXYZI pcl_cut;
     for (uint i = 1; i < valid_pcl_size; i++) {
         valid_num++;

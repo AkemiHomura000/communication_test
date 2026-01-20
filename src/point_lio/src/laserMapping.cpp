@@ -31,6 +31,9 @@ using namespace std;
 
 const float MOV_THRESHOLD = 1.5f;
 
+// #ifndef ROOT_DIR
+// #define ROOT_DIR "point_lio"
+// #endif
 string root_dir = ROOT_DIR;
 
 int time_log_counter = 0; //, publish_count = 0;
@@ -478,6 +481,7 @@ int main(int argc, char **argv)
 
     if (sync_packages(Measures))
     {
+      // todo 确认是否启用
       if (flg_reset)
       {
         RCLCPP_WARN(logger, "reset when rosbag play back");
@@ -505,6 +509,7 @@ int main(int argc, char **argv)
         }
       }
 
+      // 第一帧
       if (flg_first_scan)
       {
         first_lidar_time = Measures.lidar_beg_time;
@@ -550,6 +555,7 @@ int main(int argc, char **argv)
         G_m_s2 = std::sqrt(gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2]);
       }
 
+      // 性能统计
       double t0, t1, t2, t3, t4, t5, match_start, solve_start;
       match_time = 0;
       solve_time = 0;
@@ -685,7 +691,7 @@ int main(int argc, char **argv)
             PointType &point_body = feats_down_body->points[idx + time_seq[k]];
 
             time_current = point_body.curvature / 1000.0 + pcl_beg_time;
-
+            //第一帧：初始化 IMU 时间对齐、初始化平均值
             if (is_first_frame)
             {
               if (imu_en)
@@ -707,8 +713,10 @@ int main(int argc, char **argv)
               time_update_last = time_current;
               time_predict_last_const = time_current;
             }
+
             if (imu_en && !imu_deque.empty())
             {
+              //“下一条 IMU 的时间 < 当前 LiDAR 点时间”时，就循环处理 IMU，直到追上当前点。
               bool last_imu = get_time_sec(imu_next.header.stamp) == get_time_sec(imu_deque.front()->header.stamp);
               while (get_time_sec(imu_next.header.stamp) < time_predict_last_const && !imu_deque.empty())
               {
@@ -731,11 +739,13 @@ int main(int argc, char **argv)
               while (imu_comes)
               {
                 imu_upda_cov = true;
+                //imu数据输入
                 angvel_avr << imu_next.angular_velocity.x, imu_next.angular_velocity.y, imu_next.angular_velocity.z;
                 acc_avr << imu_next.linear_acceleration.x, imu_next.linear_acceleration.y,
                     imu_next.linear_acceleration.z;
 
                 /*** covariance update ***/
+                //不传播协方差
                 double dt = get_time_sec(imu_next.header.stamp) - time_predict_last_const;
                 kf_output.predict(dt, Q_output, input_in, true, false);
                 time_predict_last_const = get_time_sec(imu_next.header.stamp); // big problem
@@ -747,11 +757,12 @@ int main(int argc, char **argv)
                   {
                     time_update_last = get_time_sec(imu_next.header.stamp);
                     double propag_imu_start = omp_get_wtime();
-
+                    //低频更新协方差
                     kf_output.predict(dt_cov, Q_output, input_in, false, true);
 
                     propag_time += omp_get_wtime() - propag_imu_start;
                     double solve_imu_start = omp_get_wtime();
+                    //用IMU做更新
                     kf_output.update_iterated_dyn_share_IMU();
                     solve_time += omp_get_wtime() - solve_imu_start;
                   }
@@ -771,6 +782,7 @@ int main(int argc, char **argv)
 
             double dt = time_current - time_predict_last_const;
             double propag_state_start = omp_get_wtime();
+            //不按每条 IMU 都传播协方差
             if (!prop_at_freq_of_imu)
             {
               double dt_cov = time_current - time_update_last;
@@ -780,6 +792,7 @@ int main(int argc, char **argv)
                 time_update_last = time_current;
               }
             }
+            //先把状态 x 用 IMU 输入推进到当前点的时间戳
             kf_output.predict(dt, Q_output, input_in, true, false);
             propag_time += omp_get_wtime() - propag_state_start;
             time_predict_last_const = time_current;

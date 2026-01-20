@@ -271,6 +271,7 @@ public:
 				}
 				HPHT(l_, l_) += dyn_share.R_IMU(l_); //, l);
 			}
+			//计算卡尔曼增益、状态修正、协方差更新
         	Eigen::Matrix<double, 30, 6> K = PHT * HPHT.inverse(); 
                                     
             Matrix<scalar_type, n, 1> dx_ = K * z; 

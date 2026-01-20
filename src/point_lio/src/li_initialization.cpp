@@ -103,6 +103,7 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg)
     // mtx_buffer.lock();
     double preprocess_start_time = omp_get_wtime();
     scan_count ++;
+    //检查时间回退
     if (rclcpp::Time(msg->header.stamp).seconds() < last_timestamp_lidar)
     {
         RCLCPP_ERROR(rclcpp::get_logger("li_initialization"), "lidar loop back, clear buffer");
@@ -119,7 +120,7 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg)
     //     timediff_imu_wrt_lidar = last_timestamp_imu - last_timestamp_lidar;
     //     printf("Self sync IMU and LiDAR, HARD time lag is %.10lf \n \n", timediff_imu_wrt_lidar);
     // }
-
+    //默认cut_frame_init=true
     if (cut_frame_init) {
         deque<PointCloudXYZI::Ptr> ptr;
         deque<double> timestamp_lidar;
@@ -180,7 +181,7 @@ void imu_cbk(const sensor_msgs::msg::Imu::ConstSharedPtr &msg_in)
 
     // publish_count ++;
     sensor_msgs::msg::Imu::SharedPtr msg(new sensor_msgs::msg::Imu(*msg_in));
-
+    //timediff_imu_wrt_lidar=time_lag_IMU_wtr_lidar=0
     msg->header.stamp = get_ros_time(get_time_sec(msg_in->header.stamp) - timediff_imu_wrt_lidar - time_lag_IMU_wtr_lidar);
     
     double timestamp = get_time_sec(msg->header.stamp);
@@ -287,6 +288,7 @@ bool sync_packages(MeasureGroup &meas)
         lidar_pushed = true;
     }
 
+    //imu未至当前点云时刻
     if (!lose_lid && (last_timestamp_imu < lidar_end_time))
     {
         return false;
