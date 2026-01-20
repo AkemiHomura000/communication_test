@@ -31,6 +31,7 @@
 #include <cmath>
 #include <vector>
 #include <cstdint>
+#include <chrono>
 #include "nav_msgs/msg/path.hpp"
 #define MAX_SPEED 10.f
 #define MIN_SPEED -10.f
@@ -74,6 +75,10 @@ namespace sentry_communicator
     rclcpp::Publisher<robot_msg::msg::GlobalRelocalizationMsg>::SharedPtr global_relocalization_pub_;
     rclcpp::Publisher<robot_msg::msg::ChassisMsg>::SharedPtr chassis_info_pub_;
     std::shared_ptr<tools::ExtendedKalmanFilter> yaw_speed_ekf_;
+
+    bool first_yaw_speed_ = true;
+    double last_time_ = 0.0; // yaw速度计算时间
+    double last_yaw_ = 0.0;
     Eigen::VectorXd yaw_speed_x0{{0.0}};
     Eigen::MatrixXd yaw_speed_P0{{1.0}};
     std::queue<double> yaw_speed_q;

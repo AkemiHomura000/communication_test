@@ -228,62 +228,62 @@ namespace sentry_communicator
     }
   }
 
-  void CanBus::planCallback(const nav_msgs::msg::Path::SharedPtr msg)
-  {
-    path_get_flag_.store(true);
-    path_mutex_.lock();
-    size_t N = msg->poses.size();
-    if (N < 5)
-    {
-      path_mutex_.unlock();
-      RCLCPP_WARN(rclcpp::get_logger("PlanConverter"), "plan too short, N = %zu", N);
-      return;
-    }
-    path_update_ = true;
-    // 1. 确定采样后的点数 M
-    size_t M = std::min<size_t>(N, 10);
-    path_size_ = static_cast<int>(M);
-    // 2. 等距下采样到 M 个点
-    std::vector<geometry_msgs::msg::PoseStamped> sampled;
-    sampled.reserve(M);
-    for (size_t i = 0; i < M; ++i)
-    {
-      // 映射 i in [0, M-1] 到 idx in [0, N-1]
-      size_t idx = (N == 1 ? 0 : (i * (N - 1) / (M - 1)));
-      sampled.push_back(msg->poses[idx]);
-    }
-    // 3. 起点坐标转换
-    double x0_m = sampled[0].pose.position.x;
-    double y0_m = sampled[0].pose.position.y;
-    path_start_x_ = static_cast<int>(std::round(x0_m * 10.0));
-    path_start_y_ = static_cast<int>(std::round(y0_m * 10.0));
-    // 4. 计算增量数组
-    path_deltas_.clear();
-    path_deltas_.reserve(49);
-    for (size_t i = 1; i < M; ++i)
-    {
-      double dx_m = sampled[i].pose.position.x - sampled[i - 1].pose.position.x;
-      double dy_m = sampled[i].pose.position.y - sampled[i - 1].pose.position.y;
-      int dx = static_cast<int>(std::round(dx_m * 10.0));
-      int dy = static_cast<int>(std::round(dy_m * 10.0));
-      path_deltas_.emplace_back(dx, dy);
-    }
-    // 6. 输出或进一步处理
-    std::ostringstream oss;
-    oss << "起点(dm): (" << static_cast<int>(path_start_x_) << ", " << static_cast<int>(path_start_y_) << "); ";
-    oss << "点数: " << path_size_ << "; 增量数组: [";
-    for (size_t i = 0; i < path_deltas_.size(); ++i)
-    {
-      oss << "("
-          << (path_deltas_[i].first) << ","
-          << (path_deltas_[i].second) << ")";
-      if (i + 1 < path_deltas_.size())
-        oss << ", ";
-    }
-    oss << "]";
-    RCLCPP_INFO(rclcpp::get_logger("PlanConverter"), "%s", oss.str().c_str());
-    path_mutex_.unlock();
-  }
+  // void CanBus::planCallback(const nav_msgs::msg::Path::SharedPtr msg)
+  // {
+  //   path_get_flag_.store(true);
+  //   path_mutex_.lock();
+  //   size_t N = msg->poses.size();
+  //   if (N < 5)
+  //   {
+  //     path_mutex_.unlock();
+  //     RCLCPP_WARN(rclcpp::get_logger("PlanConverter"), "plan too short, N = %zu", N);
+  //     return;
+  //   }
+  //   path_update_ = true;
+  //   // 1. 确定采样后的点数 M
+  //   size_t M = std::min<size_t>(N, 10);
+  //   path_size_ = static_cast<int>(M);
+  //   // 2. 等距下采样到 M 个点
+  //   std::vector<geometry_msgs::msg::PoseStamped> sampled;
+  //   sampled.reserve(M);
+  //   for (size_t i = 0; i < M; ++i)
+  //   {
+  //     // 映射 i in [0, M-1] 到 idx in [0, N-1]
+  //     size_t idx = (N == 1 ? 0 : (i * (N - 1) / (M - 1)));
+  //     sampled.push_back(msg->poses[idx]);
+  //   }
+  //   // 3. 起点坐标转换
+  //   double x0_m = sampled[0].pose.position.x;
+  //   double y0_m = sampled[0].pose.position.y;
+  //   path_start_x_ = static_cast<int>(std::round(x0_m * 10.0));
+  //   path_start_y_ = static_cast<int>(std::round(y0_m * 10.0));
+  //   // 4. 计算增量数组
+  //   path_deltas_.clear();
+  //   path_deltas_.reserve(49);
+  //   for (size_t i = 1; i < M; ++i)
+  //   {
+  //     double dx_m = sampled[i].pose.position.x - sampled[i - 1].pose.position.x;
+  //     double dy_m = sampled[i].pose.position.y - sampled[i - 1].pose.position.y;
+  //     int dx = static_cast<int>(std::round(dx_m * 10.0));
+  //     int dy = static_cast<int>(std::round(dy_m * 10.0));
+  //     path_deltas_.emplace_back(dx, dy);
+  //   }
+  //   // 6. 输出或进一步处理
+  //   std::ostringstream oss;
+  //   oss << "起点(dm): (" << static_cast<int>(path_start_x_) << ", " << static_cast<int>(path_start_y_) << "); ";
+  //   oss << "点数: " << path_size_ << "; 增量数组: [";
+  //   for (size_t i = 0; i < path_deltas_.size(); ++i)
+  //   {
+  //     oss << "("
+  //         << (path_deltas_[i].first) << ","
+  //         << (path_deltas_[i].second) << ")";
+  //     if (i + 1 < path_deltas_.size())
+  //       oss << ", ";
+  //   }
+  //   oss << "]";
+  //   RCLCPP_INFO(rclcpp::get_logger("PlanConverter"), "%s", oss.str().c_str());
+  //   path_mutex_.unlock();
+  // }
   void CanBus::cmdChassisCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -296,7 +296,7 @@ namespace sentry_communicator
   }
   void CanBus::frameCallback(const can_frame &frame)
   {
-    /* --------------------------------- 比赛基础信息 --------------------------------- */
+    /* --------------------------------- 轮速计、yaw角度 --------------------------------- */
     if (frame.can_id == 0x340)
     {
       chassis_msg_.stamp = this->now();
@@ -307,7 +307,30 @@ namespace sentry_communicator
       chassis_msg_.vx = uint2float(chassis_vx, -5.0f, 5.0f, 16);
       chassis_msg_.vy = uint2float(chassis_vy, -5.0f, 5.0f, 16);
       chassis_msg_.wz = uint2float(chassis_vw, -15.0f, 15.0f, 16);
-      chassis_msg_.yaw = uint2float(chassis_yaw, -3.141593f, 3.141593f, 16);
+      chassis_msg_.yaw = uint2float(chassis_yaw, -M_PI, M_PI, 16);
+
+      double current_time = rclcpp::Time(chassis_msg_.stamp).seconds();
+      if (!first_yaw_speed_)
+      {
+        double dt = current_time - last_time_;
+        if (dt > 1e-6)
+        {
+          double yaw_diff = chassis_msg_.yaw - last_yaw_;
+          // 处理角度跳变
+          if (yaw_diff > M_PI)
+            yaw_diff -= 2.0 * M_PI;
+          else if (yaw_diff < -M_PI)
+            yaw_diff += 2.0 * M_PI;
+          chassis_msg_.yaw_speed = yaw_diff / dt;
+        }
+      }
+      else
+      {
+        first_yaw_speed_ = false;
+        chassis_msg_.yaw_speed = 0.0;
+      }
+      last_time_ = current_time;
+      last_yaw_ = chassis_msg_.yaw;
 
       chassis_info_pub_->publish(chassis_msg_);
     }
