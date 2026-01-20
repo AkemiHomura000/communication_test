@@ -1214,22 +1214,12 @@ int main(int argc, char **argv)
      2. noted that pcd save will influence the real-time performences **/
   if (pcl_wait_save->size() > 0 && pcd_save_en)
   {
-    std::string map_file_path;
-    std::string map_file_path_2;
-    // todo filepath
-    try
-    {
-      std::string package_name = "fast_lio";
-      std::string package_share_directory = ament_index_cpp::get_package_share_directory(package_name);
-      map_file_path = "/home/rm/Desktop/sp_nav_25/src/localization/point_lio/PCD/map.pcd";
-      map_file_path_2 = "/home/rm/Desktop/sp_nav_25/src/map_manager/pcd/map.pcd";
-    }
-    catch (const std::exception &e)
-    {
-    }
+    // string(ROOT_DIR)=src/point_lio/
+    string all_points_dir(string(string(ROOT_DIR) + "PCD/map") + string(".pcd"));
     pcl::PCDWriter pcd_writer;
-    pcd_writer.writeBinary(map_file_path, *pcl_wait_save);
-    pcd_writer.writeBinary(map_file_path_2, *pcl_wait_save);
+    pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+    std::cout<<"pcd save to "<<all_points_dir<<std::endl;
+    // pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
   }
   fout_out.close();
   fout_imu_pbp.close();
