@@ -1,8 +1,8 @@
 /**:
     ros__parameters:
         common:
-            lid_topic: "/livox/lidar_192_168_1_183"
-            imu_topic: "/livox/imu_192_168_1_183"
+            lid_topic: "/livox/lidar"
+            imu_topic: "/livox/imu"
             con_frame: false # true: if you need to combine several LiDAR frames into one
             con_frame_num: 1 # the number of frames combined
             cut_frame: false # true: if you need to cut one LiDAR frame into several subframes
@@ -46,7 +46,7 @@
                            0.0, 0.0, 1.0 ]
 
         odometry:
-            publish_odometry_without_downsample: false
+            publish_odometry_without_downsample: true
 
         publish:
             path_en: true                 # false: close the path output

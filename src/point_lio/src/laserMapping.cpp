@@ -299,7 +299,22 @@ void set_posestamp(T &out)
     out.orientation.w = q.coeffs()[3];
   }
 }
-
+template <typename T>
+void set_twist(T &out)
+{
+  if (!use_imu_as_input)
+  {
+    out.linear.x = kf_output.x_.vel(0);
+    out.linear.y = kf_output.x_.vel(1);
+    out.linear.z = kf_output.x_.vel(2);
+    out.angular.x = kf_output.x_.omg(0);
+    out.angular.y = kf_output.x_.omg(1);
+    out.angular.z = kf_output.x_.omg(2); // todo 确认角速度顺序
+  }
+  else
+  {
+  }
+}
 void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubOdomAftMapped,
                       std::unique_ptr<tf2_ros::TransformBroadcaster> &tf_br,
                       std::unique_ptr<tf2_ros::Buffer> &tf_buffer, rclcpp::Logger logger_)
@@ -315,7 +330,7 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
     odomAftMapped.header.stamp = get_ros_time(lidar_end_time);
   }
   set_posestamp(odomAftMapped.pose.pose);
-
+  set_twist(odomAftMapped.twist.twist);
   pubOdomAftMapped->publish(odomAftMapped);
 
   // Publish tf from lidar_odom to base_link
@@ -691,7 +706,7 @@ int main(int argc, char **argv)
             PointType &point_body = feats_down_body->points[idx + time_seq[k]];
 
             time_current = point_body.curvature / 1000.0 + pcl_beg_time;
-            //第一帧：初始化 IMU 时间对齐、初始化平均值
+            // 第一帧：初始化 IMU 时间对齐、初始化平均值
             if (is_first_frame)
             {
               if (imu_en)
@@ -716,7 +731,7 @@ int main(int argc, char **argv)
 
             if (imu_en && !imu_deque.empty())
             {
-              //“下一条 IMU 的时间 < 当前 LiDAR 点时间”时，就循环处理 IMU，直到追上当前点。
+              // “下一条 IMU 的时间 < 当前 LiDAR 点时间”时，就循环处理 IMU，直到追上当前点。
               bool last_imu = get_time_sec(imu_next.header.stamp) == get_time_sec(imu_deque.front()->header.stamp);
               while (get_time_sec(imu_next.header.stamp) < time_predict_last_const && !imu_deque.empty())
               {
@@ -739,13 +754,13 @@ int main(int argc, char **argv)
               while (imu_comes)
               {
                 imu_upda_cov = true;
-                //imu数据输入
+                // imu数据输入
                 angvel_avr << imu_next.angular_velocity.x, imu_next.angular_velocity.y, imu_next.angular_velocity.z;
                 acc_avr << imu_next.linear_acceleration.x, imu_next.linear_acceleration.y,
                     imu_next.linear_acceleration.z;
 
                 /*** covariance update ***/
-                //不传播协方差
+                // 不传播协方差
                 double dt = get_time_sec(imu_next.header.stamp) - time_predict_last_const;
                 kf_output.predict(dt, Q_output, input_in, true, false);
                 time_predict_last_const = get_time_sec(imu_next.header.stamp); // big problem
@@ -757,12 +772,12 @@ int main(int argc, char **argv)
                   {
                     time_update_last = get_time_sec(imu_next.header.stamp);
                     double propag_imu_start = omp_get_wtime();
-                    //低频更新协方差
+                    // 低频更新协方差
                     kf_output.predict(dt_cov, Q_output, input_in, false, true);
 
                     propag_time += omp_get_wtime() - propag_imu_start;
                     double solve_imu_start = omp_get_wtime();
-                    //用IMU做更新
+                    // 用IMU做更新
                     kf_output.update_iterated_dyn_share_IMU();
                     solve_time += omp_get_wtime() - solve_imu_start;
                   }
@@ -782,7 +797,7 @@ int main(int argc, char **argv)
 
             double dt = time_current - time_predict_last_const;
             double propag_state_start = omp_get_wtime();
-            //不按每条 IMU 都传播协方差
+            // 不按每条 IMU 都传播协方差
             if (!prop_at_freq_of_imu)
             {
               double dt_cov = time_current - time_update_last;
@@ -792,7 +807,7 @@ int main(int argc, char **argv)
                 time_update_last = time_current;
               }
             }
-            //先把状态 x 用 IMU 输入推进到当前点的时间戳
+            // 先把状态 x 用 IMU 输入推进到当前点的时间戳
             kf_output.predict(dt, Q_output, input_in, true, false);
             propag_time += omp_get_wtime() - propag_state_start;
             time_predict_last_const = time_current;
