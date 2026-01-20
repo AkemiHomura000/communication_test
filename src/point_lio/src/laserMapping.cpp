@@ -496,6 +496,7 @@ int main(int argc, char **argv)
 
     if (sync_packages(Measures))
     {
+      RCLCPP_INFO(logger,"sync");
       // todo 确认是否启用
       if (flg_reset)
       {
@@ -699,10 +700,14 @@ int main(int argc, char **argv)
         /**** point by point update ****/
         if (time_seq.size() > 0)
         {
+          RCLCPP_INFO(logger, " point by point update ");
+          RCLCPP_INFO(logger, " time_seq.size : %d ",time_seq.size() );
+
           double pcl_beg_time = Measures.lidar_beg_time;
           idx = -1;
           for (k = 0; k < time_seq.size(); k++)
           {
+                  // RCLCPP_INFO(logger, " index : %d ",k );
             PointType &point_body = feats_down_body->points[idx + time_seq[k]];
 
             time_current = point_body.curvature / 1000.0 + pcl_beg_time;
@@ -829,7 +834,8 @@ int main(int argc, char **argv)
             if (publish_odometry_without_downsample)
             {
               /******* Publish odometry *******/
-
+              RCLCPP_INFO(logger,"publish odometry");
+              RCLCPP_INFO(logger,"time : %f",time_current);
               publish_odometry(pubOdomAftMapped, tf_broadcaster, tf_buffer, nh->get_logger());
               if (runtime_pos_log)
               {
@@ -1218,7 +1224,7 @@ int main(int argc, char **argv)
     string all_points_dir(string(string(ROOT_DIR) + "PCD/map") + string(".pcd"));
     pcl::PCDWriter pcd_writer;
     pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-    std::cout<<"pcd save to "<<all_points_dir<<std::endl;
+    std::cout << "pcd save to " << all_points_dir << std::endl;
     // pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
   }
   fout_out.close();
