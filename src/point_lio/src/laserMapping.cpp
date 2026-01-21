@@ -24,7 +24,7 @@
 #include "li_initialization.h"
 
 #include "std_srvs/srv/trigger.hpp"
-
+#include <chrono>
 using namespace std;
 
 #define PUBFRAME_PERIOD (20)
@@ -712,8 +712,15 @@ int main(int argc, char **argv)
 
       double pcl_beg_time = Measures.lidar_beg_time;
       idx = -1;
+      // auto start_time = std::chrono::high_resolution_clock::now();
       for (k = 0; k < time_seq.size(); k++)
       {
+        // auto end_time = std::chrono::high_resolution_clock::now();
+        // auto duration = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+        // start_time = end_time;
+        // if (k > 2)
+        //   RCLCPP_INFO(logger, " Time taken to reach point index %d: %f ms ", k - 1, duration);
+
         // RCLCPP_INFO(logger, " index : %d ",k );
         PointType &point_body = feats_down_body->points[idx + time_seq[k]];
 
