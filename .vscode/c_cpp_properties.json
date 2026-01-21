@@ -5,10 +5,12 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "/opt/ros/humble/include/**",
-                "/usr/include/**"
+                "/usr/include/eigen3",
+                "/usr/include/pcl-1.12",
+                "/usr/include/python3.10"
             ],
             "defines": [],
-            "compilerPath": "/usr/bin/gcc",
+            "compilerPath": "/usr/bin/g++",
             "cStandard": "c17",
             "cppStandard": "gnu++17",
             "intelliSenseMode": "linux-gcc-x64"

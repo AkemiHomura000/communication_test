@@ -1,0 +1,18 @@
+{
+    "C_Cpp.default.compilerPath": "/usr/bin/g++",
+    "cmake.ignoreCMakeListsMissing": true,
+    // "C_Cpp.default.compileCommands": "/home/rm/Desktop/communication_test/build/compile_commands.json",
+    "C_Cpp.intelliSenseEngine": "default",
+
+    "files.watcherExclude": {
+    "**/build/**": true,
+    "**/install/**": true,
+    "**/log/**": true
+  },
+  "search.exclude": {
+    "**/build/**": true,
+    "**/install/**": true,
+    "**/log/**": true
+  }
+}
+
