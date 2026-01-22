@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'integrate_pointcloud_to_pcd = lidar_extrinsic_calibration.integrate_pointcloud_to_pcd:main',
+            'imu_calibration = lidar_extrinsic_calibration.imu_calibration:main',
         ],
     },
 )
