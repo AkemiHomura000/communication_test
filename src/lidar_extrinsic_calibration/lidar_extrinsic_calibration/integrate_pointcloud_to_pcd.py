@@ -50,7 +50,7 @@ class IntegratePointCloudToPCD(Node):
             "/livox/lidar_192_168_1_133",
             "/livox/lidar_192_168_1_183",
         ])
-        self.declare_parameter("frames", 50)
+        self.declare_parameter("frames", 100)
         self.declare_parameter("out_dir", "./pcd_output")
         self.declare_parameter("skip_nan", True)
         self.declare_parameter("binary_pcd", True)
