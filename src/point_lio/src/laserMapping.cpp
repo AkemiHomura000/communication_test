@@ -713,6 +713,7 @@ int main(int argc, char **argv)
       double pcl_beg_time = Measures.lidar_beg_time;
       idx = -1;
       // auto start_time = std::chrono::high_resolution_clock::now();
+      auto last_publish_odom_time = std::chrono::high_resolution_clock::now();
       for (k = 0; k < time_seq.size(); k++)
       {
         // auto end_time = std::chrono::high_resolution_clock::now();
@@ -850,7 +851,14 @@ int main(int argc, char **argv)
           /******* Publish odometry *******/
           // RCLCPP_INFO(logger,"publish odometry");
           // RCLCPP_INFO(logger,"time : %f",time_current);
-          publish_odometry(pubOdomAftMapped, tf_broadcaster, tf_buffer, nh->get_logger());
+          auto now_publish_odom_time = std::chrono::high_resolution_clock::now();
+          auto duration_since_last_publish =
+              std::chrono::duration<double, std::milli>(now_publish_odom_time - last_publish_odom_time).count();
+          if (duration_since_last_publish >= 1) // 1000hz
+          {
+            publish_odometry(pubOdomAftMapped, tf_broadcaster, tf_buffer, nh->get_logger());
+            last_publish_odom_time = now_publish_odom_time;
+          }
           if (runtime_pos_log)
           {
             euler_cur = SO3ToEuler(kf_output.x_.rot);
