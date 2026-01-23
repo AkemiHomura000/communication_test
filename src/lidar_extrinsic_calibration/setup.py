@@ -27,7 +27,7 @@ setup(
             'integrate_pointcloud_to_pcd = lidar_extrinsic_calibration.integrate_pointcloud_to_pcd:main',
             'imu_calibration = lidar_extrinsic_calibration.imu_calibration:main',
             'P_gl_xy = lidar_extrinsic_calibration.P_gl_xy:main',
-            
+            'P_gl_x_y = lidar_extrinsic_calibration.P_gl_x_y:main',
         ],
     },
 )
