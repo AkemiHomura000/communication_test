@@ -30,6 +30,9 @@ setup(
             'P_gl_x_y = lidar_extrinsic_calibration.P_gl_x_y:main',
             'estimate_delay_by_gyro_corr = lidar_extrinsic_calibration.estimate_delay_by_gyro_corr:main',
             'offline_extrinsic_calib_se2 = lidar_extrinsic_calibration.offline_extrinsic_calib_se2:main',
+            'extrinsic_test = lidar_extrinsic_calibration.extrinsic_test:main',
+            'timestamp_test = lidar_extrinsic_calibration.timestamp_test:main',
+            
  
         ],
     },

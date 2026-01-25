@@ -51,7 +51,7 @@ GroundSegmentationServer::GroundSegmentationServer(const rclcpp::NodeOptions &op
 
   // Initialize subscribers
   pointcloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
-      "/cloud_registered",
+      "/cloud_registered_body",
       rclcpp::SensorDataQoS(),
       std::bind(&GroundSegmentationServer::EstimateGround, this, std::placeholders::_1));
 

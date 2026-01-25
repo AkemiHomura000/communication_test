@@ -854,7 +854,7 @@ int main(int argc, char **argv)
           auto now_publish_odom_time = std::chrono::high_resolution_clock::now();
           auto duration_since_last_publish =
               std::chrono::duration<double, std::milli>(now_publish_odom_time - last_publish_odom_time).count();
-          if (duration_since_last_publish >= 0.1) // 2000hz
+          if (duration_since_last_publish >= 0.5) // 2000hz
           {
             publish_odometry(pubOdomAftMapped, tf_broadcaster, tf_buffer, nh->get_logger());
             last_publish_odom_time = now_publish_odom_time;
