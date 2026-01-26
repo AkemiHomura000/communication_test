@@ -20,10 +20,10 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time", default="true")
 
     # tf tree configuration, these are the likely 3 parameters to change and nothing else
-    base_frame = LaunchConfiguration("base_frame", default="base_link")
+    base_frame = LaunchConfiguration("base_frame", default="lidar_odom")
 
     # ROS configuration
-    pointcloud_topic = LaunchConfiguration("cloud_topic", default="/cloud_registered_body")
+    pointcloud_topic = LaunchConfiguration("cloud_topic", default="/cloud_registered")
     visualize = LaunchConfiguration("visualize", default="true")
 
     # Optional ros bag play
@@ -43,6 +43,8 @@ def generate_launch_description():
                 # ROS node configuration
                 "base_frame": base_frame,
                 "use_sim_time": use_sim_time,
+                "window_size": 5,
+                "voxel_size": 0.02,
                 # Patchwork++ configuration
                 "sensor_height": 0.46,
                 "num_iter": 3,  # Number of iterations for ground plane estimation using PCA.
@@ -51,7 +53,7 @@ def generate_launch_description():
                 "th_seeds": 0.15,
                 # threshold for lowest point representatives using in initial seeds selection of ground points.
                 "th_dist": 0.1,  # threshold for thickness of ground.
-                "th_seeds_v": 0.15,
+                "th_seeds_v": 0.25,
                 # threshold for lowest point representatives using in initial seeds selection of vertical structural points.
                 "th_dist_v": 0.25,  # threshold for thickness of vertical structure.
                 "max_range": 30.0,  # max_range of ground estimation area

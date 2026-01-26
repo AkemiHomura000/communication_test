@@ -25,13 +25,16 @@ using utils::PointCloud2ToEigen;
 GroundSegmentationServer::GroundSegmentationServer(const rclcpp::NodeOptions &options)
     : rclcpp::Node("patchworkpp_node", options) {
   patchwork::Params params;
-  base_frame_ = declare_parameter<std::string>("base_frame", base_frame_);
+  base_frame_  = declare_parameter<std::string>("base_frame", base_frame_);
+  window_size_ = declare_parameter<int>("window_size", window_size_);
+  voxel_size_  = declare_parameter<double>("voxel_size", voxel_size_);
 
   params.sensor_height = declare_parameter<double>("sensor_height", params.sensor_height);
-  params.num_iter      = declare_parameter<int>("num_iter", params.num_iter);
-  params.num_lpr       = declare_parameter<int>("num_lpr", params.num_lpr);
-  params.num_min_pts   = declare_parameter<int>("num_min_pts", params.num_min_pts);
-  params.th_seeds      = declare_parameter<double>("th_seeds", params.th_seeds);
+
+  params.num_iter    = declare_parameter<int>("num_iter", params.num_iter);
+  params.num_lpr     = declare_parameter<int>("num_lpr", params.num_lpr);
+  params.num_min_pts = declare_parameter<int>("num_min_pts", params.num_min_pts);
+  params.th_seeds    = declare_parameter<double>("th_seeds", params.th_seeds);
 
   params.th_dist    = declare_parameter<double>("th_dist", params.th_dist);
   params.th_seeds_v = declare_parameter<double>("th_seeds_v", params.th_seeds_v);
@@ -51,7 +54,7 @@ GroundSegmentationServer::GroundSegmentationServer(const rclcpp::NodeOptions &op
 
   // Initialize subscribers
   pointcloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
-      "/cloud_registered_body",
+      "/cloud_registered",
       rclcpp::SensorDataQoS(),
       std::bind(&GroundSegmentationServer::EstimateGround, this, std::placeholders::_1));
 
@@ -75,11 +78,56 @@ GroundSegmentationServer::GroundSegmentationServer(const rclcpp::NodeOptions &op
 
 void GroundSegmentationServer::EstimateGround(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr &msg) {
-  const auto &cloud = patchworkpp_ros::utils::PointCloud2ToEigenMat(msg);
+  const Eigen::MatrixXf &cloud = patchworkpp_ros::utils::PointCloud2ToEigenMat(msg);
+
+  cloud_buffer_.push_back(cloud);
+  if (cloud_buffer_.size() > (size_t)window_size_) {
+    cloud_buffer_.pop_front();
+  }
+
+  Eigen::MatrixX3f accumulated_cloud;
+  if (cloud_buffer_.size() > 1) {
+    long total_rows = 0;
+    for (const auto &c : cloud_buffer_) {
+      total_rows += c.rows();
+    }
+    accumulated_cloud.resize(total_rows, 3);
+    long current_row = 0;
+    for (const auto &c : cloud_buffer_) {
+      accumulated_cloud.block(current_row, 0, c.rows(), 3) = c;
+      current_row += c.rows();
+    }
+  } else {
+    accumulated_cloud = cloud;
+  }
+  RCLCPP_INFO(this->get_logger(), "Cloud buffer size: %ld", cloud_buffer_.size());
+  RCLCPP_INFO(this->get_logger(), "Accumulated cloud size: %ld", accumulated_cloud.rows());
+  if (voxel_size_ > 0.0) {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl_cloud->points.reserve(accumulated_cloud.rows());
+    for (int i = 0; i < accumulated_cloud.rows(); ++i) {
+      pcl_cloud->points.emplace_back(
+          accumulated_cloud(i, 0), accumulated_cloud(i, 1), accumulated_cloud(i, 2));
+    }
+
+    pcl::VoxelGrid<pcl::PointXYZ> vg;
+    vg.setInputCloud(pcl_cloud);
+    vg.setLeafSize(voxel_size_, voxel_size_, voxel_size_);
+    pcl::PointCloud<pcl::PointXYZ> filtered_cloud;
+    vg.filter(filtered_cloud);
+
+    accumulated_cloud.resize(filtered_cloud.size(), 3);
+    for (size_t i = 0; i < filtered_cloud.size(); ++i) {
+      accumulated_cloud.row(i) << filtered_cloud.points[i].x, filtered_cloud.points[i].y,
+          filtered_cloud.points[i].z;
+    }
+  }
 
   // Estimate ground
-  Patchworkpp_->estimateGround(cloud);
-  cloud_publisher_->publish(patchworkpp_ros::utils::EigenMatToPointCloud2(cloud, msg->header));
+  Patchworkpp_->estimateGround(accumulated_cloud);
+
+  cloud_publisher_->publish(
+      patchworkpp_ros::utils::EigenMatToPointCloud2(accumulated_cloud, msg->header));
   // Get ground and nonground
   Eigen::MatrixX3f ground    = Patchworkpp_->getGround();
   Eigen::MatrixX3f nonground = Patchworkpp_->getNonground();

@@ -27,13 +27,15 @@ find_package(rcutils REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(pcl_ros REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 # ROS 2 node. gseg: Abbrev. of `g`round `seg`mentation
 add_library(gseg_component SHARED src/GroundSegmentationServer.cpp)
 target_compile_features(gseg_component PUBLIC cxx_std_20)
 target_include_directories(gseg_component PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(gseg_component ${PARENT_PROJECT_NAME}::${TARGET_NAME})
+target_link_libraries(gseg_component ${PARENT_PROJECT_NAME}::${TARGET_NAME} ${PCL_LIBRARIES})
 ament_target_dependencies(
   gseg_component
   rcutils
@@ -42,6 +44,8 @@ ament_target_dependencies(
   nav_msgs
   sensor_msgs
   geometry_msgs
+  pcl_conversions
+  pcl_ros
   tf2_ros)
 
 rclcpp_components_register_node(gseg_component PLUGIN "patchworkpp_ros::GroundSegmentationServer" EXECUTABLE patchworkpp_node)

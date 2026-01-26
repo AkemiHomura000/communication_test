@@ -3,10 +3,14 @@
 
 // ROS 2
 #include <string>
+#include <deque>
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/header.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/filters/voxel_grid.h>
 
 namespace patchworkpp_ros {
 
@@ -38,6 +42,9 @@ class GroundSegmentationServer : public rclcpp::Node {
   std::unique_ptr<patchwork::PatchWorkpp> Patchworkpp_;
 
   std::string base_frame_{"base_link"};
+  int window_size_{1};
+  double voxel_size_{0.0};
+  std::deque<Eigen::MatrixXf> cloud_buffer_;
 };
 
 }  // namespace patchworkpp_ros
