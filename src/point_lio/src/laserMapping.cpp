@@ -708,24 +708,23 @@ int main(int argc, char **argv)
     if (time_seq.size() > 0)
     {
       RCLCPP_INFO(logger, " point by point update ");
-      RCLCPP_INFO(logger, " time_seq.size : %d ", time_seq.size());
+      RCLCPP_INFO(logger, " time_seq.size : %d ", (int)time_seq.size());
 
       double pcl_beg_time = Measures.lidar_beg_time;
       idx = -1;
-      // auto start_time = std::chrono::high_resolution_clock::now();
       auto last_publish_odom_time = std::chrono::high_resolution_clock::now();
-      for (k = 0; k < time_seq.size(); k++)
-      {
-        // auto end_time = std::chrono::high_resolution_clock::now();
-        // auto duration = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-        // start_time = end_time;
-        // if (k > 2)
-        //   RCLCPP_INFO(logger, " Time taken to reach point index %d: %f ms ", k - 1, duration);
+      
+      auto seq_start_wall = std::chrono::high_resolution_clock::now();
+      double seq_start_ros = 0, seq_end_ros = 0;
 
-        // RCLCPP_INFO(logger, " index : %d ",k );
+      for (k = 0; k < (int)time_seq.size(); k++)
+      {
+        auto point_start_wall = std::chrono::high_resolution_clock::now();
         PointType &point_body = feats_down_body->points[idx + time_seq[k]];
 
         time_current = point_body.curvature / 1000.0 + pcl_beg_time;
+        if (k == 0) seq_start_ros = time_current;
+        if (k == (int)time_seq.size() - 1) seq_end_ros = time_current;
         // 第一帧：初始化 IMU 时间对齐、初始化平均值
         if (is_first_frame)
         {
@@ -837,11 +836,17 @@ int main(int argc, char **argv)
         {
           RCLCPP_WARN(logger, "No point, skip this scan!\n");
           idx += time_seq[k];
+          auto point_end_wall = std::chrono::high_resolution_clock::now();
+          double point_duration_ms = std::chrono::duration<double, std::milli>(point_end_wall - point_start_wall).count();
+          RCLCPP_DEBUG(logger, "Point %d skipped in %.3f ms", k, point_duration_ms);
           continue;
         }
         if (!kf_output.update_iterated_dyn_share_modified())
         {
           idx = idx + time_seq[k];
+          auto point_end_wall = std::chrono::high_resolution_clock::now();
+          double point_duration_ms = std::chrono::duration<double, std::milli>(point_end_wall - point_start_wall).count();
+          RCLCPP_DEBUG(logger, "Point %d update failed in %.3f ms", k, point_duration_ms);
           continue;
         }
         solve_start = omp_get_wtime();
@@ -880,8 +885,24 @@ int main(int argc, char **argv)
         solve_time += omp_get_wtime() - solve_start;
 
         update_time += omp_get_wtime() - t_update_start;
+        
+        auto point_end_wall = std::chrono::high_resolution_clock::now();
+        double point_duration_ms = std::chrono::duration<double, std::milli>(point_end_wall - point_start_wall).count();
+        RCLCPP_DEBUG(logger, "Point %d processed in %.3f ms", k, point_duration_ms);
+
         idx += time_seq[k];
         // cout << "pbp output effect feat num:" << effct_feat_num << endl;
+      }
+      auto seq_end_wall = std::chrono::high_resolution_clock::now();
+      double wall_duration_ms = std::chrono::duration<double, std::milli>(seq_end_wall - seq_start_wall).count();
+      double ros_duration_ms = (seq_end_ros - seq_start_ros) * 1000.0;
+      
+      if (wall_duration_ms > ros_duration_ms && ros_duration_ms > 1e-3) {
+          RCLCPP_WARN(logger, "[Perf] Sequence LAGGING: Processing Time (%.2f ms) > ROS Time (%.2f ms)!", 
+                      wall_duration_ms, ros_duration_ms);
+      } else if (ros_duration_ms > 1e-3) {
+          RCLCPP_INFO(logger, "[Perf] Sequence Real-time OK: Processing Time (%.2f ms) <= ROS Time (%.2f ms)", 
+                      wall_duration_ms, ros_duration_ms);
       }
     }
     else

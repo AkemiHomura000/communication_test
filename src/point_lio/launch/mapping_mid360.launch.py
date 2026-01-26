@@ -39,6 +39,7 @@ def generate_launch_description():
         name='laserMapping',
         output='screen',
         parameters=laser_mapping_params,
+        arguments=['--ros-args', '--log-level', 'INFO'] 
         # prefix='gdb -ex run --args'
     )
 
