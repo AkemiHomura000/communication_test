@@ -22,6 +22,8 @@ extern std::mutex m_time;
 extern bool lidar_pushed, imu_pushed;
 extern double imu_first_time;
 extern bool lose_lid;
+extern std::deque<PointCloudXYZI::Ptr>  lidar_buffer_B;
+extern std::deque<double>               time_buffer_B;
 extern sensor_msgs::msg::Imu imu_last, imu_next;
 extern PointCloudXYZI::Ptr  ptr_con;
 extern double T1[MAXN], s_plot[MAXN], s_plot2[MAXN], s_plot3[MAXN], s_plot11[MAXN];
@@ -29,7 +31,9 @@ extern double T1[MAXN], s_plot[MAXN], s_plot2[MAXN], s_plot3[MAXN], s_plot11[MAX
 // extern sensor_msgs::msg::Imu::ConstSharedPtr imu_last_ptr;
 
 void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::SharedPtr &msg); 
+void standard_pcl_cbk_B(const sensor_msgs::msg::PointCloud2::SharedPtr &msg); 
 void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg); 
+void livox_pcl_cbk_B(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg); 
 void imu_cbk(const sensor_msgs::msg::Imu::ConstSharedPtr &msg_in); 
 bool sync_packages(MeasureGroup &meas);
 

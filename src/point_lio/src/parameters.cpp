@@ -9,9 +9,11 @@ int ivox_nearby_type = 6;
 
 std::vector<double> extrinT(3, 0.0);
 std::vector<double> extrinR(9, 0.0);
+std::vector<double> extrinT_B(3, 0.0);
+std::vector<double> extrinR_B(9, 0.0);
 state_input state_in;
 state_output state_out;
-std::string lid_topic, imu_topic;
+std::string lid_topic, lid_B_topic, imu_topic;
 bool prop_at_freq_of_imu = true, check_satu = true, con_frame = false, cut_frame = false;
 bool use_imu_as_input = false, space_down_sample = true, publish_odometry_without_downsample = false;
 int  init_map_size = 10, con_frame_num = 1;
@@ -31,6 +33,7 @@ std::vector<double> gravity_init, gravity;
 bool   runtime_pos_log, pcd_save_en, path_en, extrinsic_est_en = true;
 bool   scan_pub_en, scan_body_pub_en;
 shared_ptr<Preprocess> p_pre;
+shared_ptr<Preprocess> p_pre_B;
 shared_ptr<ImuProcess> p_imu;
 double time_update_last = 0.0, time_current = 0.0, time_predict_last_const = 0.0, t_last = 0.0;
 double time_diff_lidar_to_imu = 0.0;
@@ -47,6 +50,7 @@ ofstream fout_out, fout_imu_pbp, fout_rtk;
 void readParameters(shared_ptr<rclcpp::Node> &nh)
 {
   p_pre.reset(new Preprocess());
+  p_pre_B.reset(new Preprocess());
   p_imu.reset(new ImuProcess());
 
   nh->declare_parameter<bool>("prop_at_freq_of_imu", true);
@@ -60,6 +64,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->declare_parameter<float>("mapping.plane_thr", 0.05f);
   nh->declare_parameter<int>("point_filter_num", 2);
   nh->declare_parameter<std::string>("common.lid_topic", "/livox/lidar");
+  nh->declare_parameter<std::string>("common.lid_B_topic", "/livox/lidar_B");
   nh->declare_parameter<std::string>("common.imu_topic", "/livox/imu");
   nh->declare_parameter<bool>("common.con_frame", false);
   nh->declare_parameter<int>("common.con_frame_num", 1);
@@ -87,6 +92,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->declare_parameter<double>("mapping.imu_meas_omg_cov", 0.1);
   nh->declare_parameter<double>("preprocess.blind", 1.0);
   nh->declare_parameter<int>("preprocess.lidar_type", 1);
+  nh->get_parameter("preprocess.lidar_type", lidar_type);
   nh->declare_parameter<int>("preprocess.scan_line", 16);
   nh->declare_parameter<int>("preprocess.scan_rate", 10);
   nh->declare_parameter<int>("preprocess.timestamp_unit", 1);
@@ -95,6 +101,8 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->declare_parameter<std::vector<double>>("mapping.gravity_init", {0, 0, -9.810});
   nh->declare_parameter<std::vector<double>>("mapping.extrinsic_T", {0, 0, 0});
   nh->declare_parameter<std::vector<double>>("mapping.extrinsic_R", {1, 0, 0, 0, 1, 0, 0, 0, 1});
+  nh->declare_parameter<std::vector<double>>("mapping.extrinsic_T_B", {0, 0, 0});
+  nh->declare_parameter<std::vector<double>>("mapping.extrinsic_R_B", {1, 0, 0, 0, 1, 0, 0, 0, 1});
   nh->declare_parameter<bool>("odometry.publish_odometry_without_downsample", false);
   nh->declare_parameter<bool>("publish.path_en", true);
   nh->declare_parameter<bool>("publish.scan_publish_en", true);
@@ -117,6 +125,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->get_parameter("mapping.plane_thr", plane_thr);
   nh->get_parameter("point_filter_num", p_pre->point_filter_num);
   nh->get_parameter("common.lid_topic", lid_topic);
+  nh->get_parameter("common.lid_B_topic", lid_B_topic);
   nh->get_parameter("common.imu_topic", imu_topic);
   nh->get_parameter("common.con_frame", con_frame);
   nh->get_parameter("common.con_frame_num", con_frame_num);
@@ -151,6 +160,8 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->get_parameter("mapping.gravity_init", gravity_init);
   nh->get_parameter("mapping.extrinsic_T", extrinT);
   nh->get_parameter("mapping.extrinsic_R", extrinR);
+  nh->get_parameter("mapping.extrinsic_T_B", extrinT_B);
+  nh->get_parameter("mapping.extrinsic_R_B", extrinR_B);
   nh->get_parameter("odometry.publish_odometry_without_downsample", publish_odometry_without_downsample);
   nh->get_parameter("publish.path_en", path_en);
   nh->get_parameter("publish.scan_publish_en", scan_pub_en);

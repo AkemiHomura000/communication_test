@@ -47,6 +47,7 @@ bool flg_reset = false, flg_exit = false;
 
 // surf feature in map
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
+PointCloudXYZI::Ptr feats_undistort_B(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body_space(new PointCloudXYZI());
 PointCloudXYZI::Ptr init_feats_world(new PointCloudXYZI());
 std::deque<PointCloudXYZI::Ptr> depth_feats_world;
@@ -213,6 +214,13 @@ void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>:
       laserCloudWorld->points[i].intensity =
           feats_down_world->points[i].intensity; // feats_down_world->points[i].y; //
     }
+
+    // Add LiDAR B
+    for (auto &p : feats_undistort_B->points)
+    {
+        laserCloudWorld->push_back(p);
+    }
+
     sensor_msgs::msg::PointCloud2 laserCloudmsg;
     pcl::toROSMsg(*laserCloudWorld, laserCloudmsg);
 
@@ -420,6 +428,10 @@ int main(int argc, char **argv)
 
   Lidar_T_wrt_IMU << VEC_FROM_ARRAY(extrinT);
   Lidar_R_wrt_IMU << MAT_FROM_ARRAY(extrinR);
+  Lidar_T_B_wrt_A << VEC_FROM_ARRAY(extrinT_B);
+  Lidar_R_B_wrt_A << MAT_FROM_ARRAY(extrinR_B);
+  Lidar_R_wrt_IMU_B = Lidar_R_wrt_IMU * Lidar_R_B_wrt_A;
+  Lidar_T_wrt_IMU_B = Lidar_R_wrt_IMU * Lidar_T_B_wrt_A + Lidar_T_wrt_IMU;
 
   if (extrinsic_est_en)
   {
@@ -435,7 +447,7 @@ int main(int argc, char **argv)
     }
   }
 
-  p_imu->lidar_type = p_pre->lidar_type = lidar_type;
+  p_imu->lidar_type = p_pre->lidar_type = p_pre_B->lidar_type = lidar_type;
   p_imu->imu_en = imu_en;
 
   kf_input.init_dyn_share_modified_2h(get_f_input, df_dx_input, h_model_input);
@@ -456,13 +468,20 @@ int main(int argc, char **argv)
 
   /*** ROS subscribe initialization ***/
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc_;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc_B_;
   rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr sub_pcl_livox_;
+  rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr sub_pcl_livox_B_;
   if (p_pre->lidar_type == AVIA)
   {
     sub_pcl_livox_ = nh->create_subscription<livox_ros_driver2::msg::CustomMsg>(
         lid_topic, rclcpp::SensorDataQoS(),
         [](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg)
         { livox_pcl_cbk(msg); });
+
+    sub_pcl_livox_B_ = nh->create_subscription<livox_ros_driver2::msg::CustomMsg>(
+        lid_B_topic, rclcpp::SensorDataQoS(),
+        [](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg)
+        { livox_pcl_cbk_B(msg); });
   }
   else
   {
@@ -470,6 +489,11 @@ int main(int argc, char **argv)
         lid_topic, rclcpp::SensorDataQoS(),
         [](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
         { standard_pcl_cbk(msg); });
+
+    sub_pcl_pc_B_ = nh->create_subscription<sensor_msgs::msg::PointCloud2>(
+        lid_B_topic, rclcpp::SensorDataQoS(),
+        [](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+        { standard_pcl_cbk_B(msg); });
   }
 
   auto sub_imu = nh->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS(), imu_cbk);
@@ -1183,6 +1207,59 @@ int main(int argc, char **argv)
     }
 
     t5 = omp_get_wtime();
+
+    /*** Process LiDAR B for merged output ***/
+    mtx_buffer.lock();
+    if (!lidar_buffer_B.empty()) {
+        double target_time = Measures.lidar_beg_time;
+        int best_idx = -1;
+        double min_diff = 1e9;
+        for (size_t i = 0; i < time_buffer_B.size(); i++) {
+            double diff = std::abs(time_buffer_B[i] - target_time);
+            if (diff < min_diff) {
+                min_diff = diff;
+                best_idx = i;
+            }
+        }
+        
+        if (best_idx != -1 && min_diff < 0.2) { // 200ms window
+            PointCloudXYZI::Ptr raw_B = lidar_buffer_B[best_idx];
+            feats_undistort_B->clear();
+            
+            // For B undistortion: 
+            // In Point-LIO, we can approximate the pose at each point's timestamp B(t)
+            // using the kf_output state at the end of the scan, but that's not quite right.
+            // However, for visualization, using the current kf_output state is often okay 
+            // if we transform them to A's body frame first.
+            
+            for (auto &p : raw_B->points) {
+                PointType p_world;
+                // Transform point to Body frame using B->A and then Body->World
+                // Here we use the end-of-scan state for all B points for now, 
+                // which is "rigid" but at the correct latest pose.
+                // To do true undistort, we'd need a trajectory buffer.
+                
+                V3D p_b(p.x, p.y, p.z);
+                V3D p_body = Lidar_R_wrt_IMU_B * p_b + Lidar_T_wrt_IMU_B;
+                V3D p_w = kf_output.x_.rot * p_body + kf_output.x_.pos;
+                
+                p_world.x = p_w.x();
+                p_world.y = p_w.y();
+                p_world.z = p_w.z();
+                p_world.intensity = p.intensity;
+                feats_undistort_B->push_back(p_world);
+            }
+            
+            // Clear old data
+            while (best_idx >= 0 && !lidar_buffer_B.empty()) {
+                lidar_buffer_B.pop_front();
+                time_buffer_B.pop_front();
+                best_idx--;
+            }
+        }
+    }
+    mtx_buffer.unlock();
+
     /******* Publish points *******/
     if (path_en)
       publish_path(pubPath);

@@ -20,6 +20,8 @@ std::mutex m_time;
 bool lidar_pushed = false, imu_pushed = false;
 std::deque<PointCloudXYZI::Ptr>  lidar_buffer;
 std::deque<double>               time_buffer;
+std::deque<PointCloudXYZI::Ptr>  lidar_buffer_B;
+std::deque<double>               time_buffer_B;
 std::deque<sensor_msgs::msg::Imu::ConstSharedPtr> imu_deque;
 
 void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::SharedPtr &msg) 
@@ -96,6 +98,44 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::SharedPtr &msg)
     s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
     // mtx_buffer.unlock();
     // sig_buffer.notify_all();
+}
+
+void standard_pcl_cbk_B(const sensor_msgs::msg::PointCloud2::SharedPtr &msg) 
+{
+    mtx_buffer.lock();
+    double preprocess_start_time = omp_get_wtime();
+    
+    PointCloudXYZI::Ptr ptr(new PointCloudXYZI(20000,1));
+    p_pre_B->process(msg, ptr);
+    
+    lidar_buffer_B.emplace_back(ptr);
+    time_buffer_B.emplace_back(rclcpp::Time(msg->header.stamp).seconds());
+    
+    // Keep buffer size under control if needed, but for now just follow existing pattern
+    while (lidar_buffer_B.size() > 20) {
+        lidar_buffer_B.pop_front();
+        time_buffer_B.pop_front();
+    }
+
+    mtx_buffer.unlock();
+}
+
+void livox_pcl_cbk_B(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg) 
+{
+    mtx_buffer.lock();
+    double preprocess_start_time = omp_get_wtime();
+    
+    PointCloudXYZI::Ptr ptr(new PointCloudXYZI(10000,1));
+    p_pre_B->process(msg, ptr); 
+    
+    lidar_buffer_B.emplace_back(ptr);
+    time_buffer_B.emplace_back(rclcpp::Time(msg->header.stamp).seconds());
+    
+    while (lidar_buffer_B.size() > 20) {
+        lidar_buffer_B.pop_front();
+        time_buffer_B.pop_front();
+    }
+    mtx_buffer.unlock();
 }
 
 void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg) 

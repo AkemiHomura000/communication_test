@@ -8,6 +8,7 @@
             cut_frame: false # true: if you need to cut one LiDAR frame into several subframes
             cut_frame_time_interval: 0.02 # should be integral fraction of 1 / LiDAR frequency
             time_diff_lidar_to_imu: 0.0 # Time offset between LiDAR and IMU calibrated by other algorithms, e.g., LI-Init (find in Readme)
+            lid_B_topic: "/livox/lidar_192_168_1_133"
 
         preprocess:
             lidar_type: 1      # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR
@@ -44,6 +45,8 @@
             extrinsic_R: [ 1.0, 0.0, 0.0,
                            0.0, 1.0, 0.0,
                            0.0, 0.0, 1.0 ]
+            extrinsic_R_B: [ 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 ]
+            extrinsic_T_B: [ 0.1, 0.0, 0.0 ]
 
         odometry:
             publish_odometry_without_downsample: true
