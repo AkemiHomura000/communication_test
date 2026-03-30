@@ -9,23 +9,20 @@ int ivox_nearby_type = 6;
 
 std::vector<double> extrinT(3, 0.0);
 std::vector<double> extrinR(9, 0.0);
-state_input state_in;
 state_output state_out;
 std::string lid_topic, imu_topic;
 bool prop_at_freq_of_imu = true, check_satu = true, con_frame = false, cut_frame = false;
-bool use_imu_as_input = false, space_down_sample = true, publish_odometry_without_downsample = false;
+bool space_down_sample = true, publish_odometry_without_downsample = false;
 int  init_map_size = 10, con_frame_num = 1;
 double match_s = 81, satu_acc, satu_gyro, cut_frame_time_interval = 0.1;
 float  plane_thr = 0.1f;
 double filter_size_surf_min = 0.5, filter_size_map_min = 0.5, fov_deg = 180;
-// double cube_len = 2000; 
 float  DET_RANGE = 450;
 bool   imu_en = true;
 double imu_time_inte = 0.005;
 double laser_point_cov = 0.01, acc_norm;
-double vel_cov, acc_cov_input, acc_z_cov_input,gyr_cov_input;
-double gyr_cov_output, acc_cov_output, b_gyr_cov, b_acc_cov;
-double imu_meas_acc_cov, imu_meas_omg_cov; 
+double vel_cov, gyr_cov_output, acc_cov_output, b_gyr_cov, b_acc_cov;
+double imu_meas_acc_cov, imu_meas_omg_cov;
 int    lidar_type, pcd_save_interval;
 std::vector<double> gravity_init, gravity;
 bool   runtime_pos_log, pcd_save_en, path_en, extrinsic_est_en = true;
@@ -50,7 +47,6 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   p_imu.reset(new ImuProcess());
 
   nh->declare_parameter<bool>("prop_at_freq_of_imu", true);
-  nh->declare_parameter<bool>("use_imu_as_input", true);
   nh->declare_parameter<bool>("check_satu", true);
   nh->declare_parameter<int>("init_map_size", 100);
   nh->declare_parameter<bool>("space_down_sample", true);
@@ -75,10 +71,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->declare_parameter<bool>("mapping.extrinsic_est_en", true);
   nh->declare_parameter<double>("mapping.imu_time_inte", 0.005);
   nh->declare_parameter<double>("mapping.lidar_meas_cov", 0.1);
-  nh->declare_parameter<double>("mapping.acc_cov_input", 0.1);
-  nh->declare_parameter<double>("mapping.acc_z_cov_input", 1.0);
   nh->declare_parameter<double>("mapping.vel_cov", 20);
-  nh->declare_parameter<double>("mapping.gyr_cov_input", 0.1);
   nh->declare_parameter<double>("mapping.gyr_cov_output", 0.1);
   nh->declare_parameter<double>("mapping.acc_cov_output", 0.1);
   nh->declare_parameter<double>("mapping.b_gyr_cov", 0.0001);
@@ -108,7 +101,6 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->declare_parameter<int>("ivox_nearby_type", 18);
 
   nh->get_parameter("prop_at_freq_of_imu", prop_at_freq_of_imu);
-  nh->get_parameter("use_imu_as_input", use_imu_as_input);
   nh->get_parameter("check_satu", check_satu);
   nh->get_parameter("init_map_size", init_map_size);
   nh->get_parameter("space_down_sample", space_down_sample);
@@ -132,10 +124,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->get_parameter("mapping.extrinsic_est_en", extrinsic_est_en);
   nh->get_parameter("mapping.imu_time_inte", imu_time_inte);
   nh->get_parameter("mapping.lidar_meas_cov", laser_point_cov);
-  nh->get_parameter("mapping.acc_cov_input", acc_cov_input);
-  nh->get_parameter("mapping.acc_z_cov_input", acc_z_cov_input);
   nh->get_parameter("mapping.vel_cov", vel_cov);
-  nh->get_parameter("mapping.gyr_cov_input", gyr_cov_input);
   nh->get_parameter("mapping.gyr_cov_output", gyr_cov_output);
   nh->get_parameter("mapping.acc_cov_output", acc_cov_output);
   nh->get_parameter("mapping.b_gyr_cov", b_gyr_cov);
@@ -212,14 +201,7 @@ void open_file()
 
 }
 
-void reset_cov(Eigen::Matrix<double, 24, 24> & P_init)
-{
-    P_init = MD(24, 24)::Identity() * 0.1;
-    P_init.block<3, 3>(21, 21) = MD(3,3)::Identity() * 0.0001;
-    P_init.block<6, 6>(15, 15) = MD(6,6)::Identity() * 0.001;
-}
-
-void reset_cov_output(Eigen::Matrix<double, 30, 30> & P_init_output)
+void reset_cov_output(Eigen::Matrix<double, 30, 30> &P_init_output)
 {
     P_init_output = MD(30, 30)::Identity() * 0.01;
     P_init_output.block<3, 3>(21, 21) = MD(3,3)::Identity() * 0.0001;
