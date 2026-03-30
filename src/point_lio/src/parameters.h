@@ -1,5 +1,3 @@
-// #ifndef PARAM_H
-// #define PARAM_H
 #pragma once
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Eigen>
@@ -32,48 +30,104 @@
     using IVoxType = faster_lio::IVox<3, faster_lio::IVoxNodeType::DEFAULT, PointType>;
 #endif
 
-extern bool is_first_frame;
+// =====================================================================
+// 全局时间戳（lidar/imu 回调写入，sync 读取）
+// =====================================================================
+extern bool   is_first_frame;
 extern double lidar_end_time, first_lidar_time, time_con;
 extern double last_timestamp_lidar, last_timestamp_imu;
-extern int pcd_index;
+extern int    pcd_index;
+
+// =====================================================================
+// IVox 选项
+// =====================================================================
 extern IVoxType::Options ivox_options_;
 extern int ivox_nearby_type;
+
+// =====================================================================
+// 状态 / EKF
+// =====================================================================
 extern state_output state_out;
+
+// =====================================================================
+// ROS 话题名
+// =====================================================================
 extern std::string lid_topic, imu_topic;
-extern bool prop_at_freq_of_imu, check_satu, con_frame, cut_frame;
-extern bool space_down_sample;
-extern bool extrinsic_est_en;
-extern double odom_pub_freq; // 里程计发布频率 (Hz)，0 表示每帧发布
-extern int  init_map_size, con_frame_num;
+
+// =====================================================================
+// 算法开关
+// =====================================================================
+extern bool   prop_at_freq_of_imu, check_satu, con_frame, cut_frame;
+extern bool   space_down_sample;
+extern bool   extrinsic_est_en;
+extern double odom_pub_freq;        // 里程计发布频率 (Hz)，0 表示每帧发布
+
+// =====================================================================
+// 地图 / 滤波参数
+// =====================================================================
+extern int    init_map_size, con_frame_num;
 extern double match_s, satu_acc, satu_gyro, cut_frame_time_interval;
 extern float  plane_thr;
 extern double filter_size_surf_min, filter_size_map_min, fov_deg;
 extern float  DET_RANGE;
+
+// =====================================================================
+// IMU 参数
+// =====================================================================
 extern bool   imu_en;
 extern double imu_time_inte;
 extern double laser_point_cov, acc_norm;
 extern double vel_cov, gyr_cov_output, acc_cov_output, b_gyr_cov, b_acc_cov;
 extern double imu_meas_acc_cov, imu_meas_omg_cov;
+
+// =====================================================================
+// 传感器类型 / 保存
+// =====================================================================
 extern int    lidar_type, pcd_save_interval;
 extern std::vector<double> gravity_init, gravity;
+
+// =====================================================================
+// 发布开关
+// =====================================================================
 extern bool   runtime_pos_log, pcd_save_en, path_en;
 extern bool   scan_pub_en, scan_body_pub_en;
-extern shared_ptr<Preprocess> p_pre;
-extern shared_ptr<ImuProcess> p_imu;
 
+// =====================================================================
+// 预处理 / IMU 处理对象
+// =====================================================================
+extern std::shared_ptr<Preprocess>  p_pre;
+extern std::shared_ptr<ImuProcess>  p_imu;
+
+// =====================================================================
+// 外参
+// =====================================================================
 extern std::vector<double> extrinT;
 extern std::vector<double> extrinR;
 extern double time_diff_lidar_to_imu;
 extern double lidar_time_inte, first_imu_time;
-extern int cut_frame_num, orig_odom_freq;
-extern double online_refine_time; // unit: s
-extern bool cut_frame_init;
+
+// =====================================================================
+// 帧切割
+// =====================================================================
+extern int    cut_frame_num, orig_odom_freq;
+extern double online_refine_time;
+extern bool   cut_frame_init;
+
+// =====================================================================
+// 时间状态（EKF 传播用）
+// =====================================================================
 extern double time_update_last, time_current, time_predict_last_const, t_last;
 
+// =====================================================================
+// 测量组 / 日志文件
+// =====================================================================
 extern MeasureGroup Measures;
+extern std::ofstream fout_out, fout_imu_pbp, fout_rtk;
 
-extern ofstream fout_out, fout_imu_pbp, fout_rtk;
-void readParameters(shared_ptr<rclcpp::Node> &nh);
+// =====================================================================
+// 函数
+// =====================================================================
+void readParameters(std::shared_ptr<rclcpp::Node> &nh);
 void open_file();
 Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3 &orient);
 void reset_cov_output(Eigen::Matrix<double, 30, 30> &P_init_output);

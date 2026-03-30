@@ -23,6 +23,7 @@
 #include <std_srvs/srv/trigger.hpp>
 
 #include "common_lib.h"
+#include "Estimator.h"
 #include "li_initialization.h"
 
 #include <memory>
@@ -118,7 +119,11 @@ private:
   bool flg_reset_      = false;
   bool init_map_       = false;
 
-  // ── 卡尔曼滤波矩阵 ────────────────────────────────────────────────
+  // ── 封装子模块 ────────────────────────────────────────────────────
+  Estimator       estimator_;       // EKF + 点云缓冲区
+  LidarImuBuffer  lidar_imu_buf_;   // 传感器数据缓冲 + 回调 + 时间同步
+
+  // ── 卡尔曼滤波初始化矩阵 ──────────────────────────────────────────
   Eigen::Matrix<double, 30, 30> P_init_output_;
   Eigen::Matrix<double, 30, 30> Q_output_;
 

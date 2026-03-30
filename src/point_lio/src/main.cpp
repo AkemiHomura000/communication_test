@@ -13,7 +13,6 @@ bool g_flg_exit = false;
 static void SigHandle(int /*sig*/)
 {
   g_flg_exit = true;
-  sig_buffer.notify_all();
 }
 
 int main(int argc, char **argv)
