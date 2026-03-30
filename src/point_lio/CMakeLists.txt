@@ -75,8 +75,13 @@ link_directories(
 )
 
 # Declare a ROS2 executable
-add_executable(pointlio_mapping src/laserMapping.cpp
-                src/li_initialization.cpp src/parameters.cpp src/preprocess.cpp src/Estimator.cpp 
+add_executable(pointlio_mapping
+                src/main.cpp
+                src/LaserMappingNode.cpp
+                src/li_initialization.cpp
+                src/parameters.cpp
+                src/preprocess.cpp
+                src/Estimator.cpp
                 src/IMU_Processing.cpp)
 
 ament_target_dependencies(pointlio_mapping

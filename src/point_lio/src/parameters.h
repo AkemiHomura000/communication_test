@@ -42,7 +42,8 @@ extern state_output state_out;
 extern std::string lid_topic, imu_topic;
 extern bool prop_at_freq_of_imu, check_satu, con_frame, cut_frame;
 extern bool space_down_sample;
-extern bool extrinsic_est_en, publish_odometry_without_downsample;
+extern bool extrinsic_est_en;
+extern double odom_pub_freq; // 里程计发布频率 (Hz)，0 表示每帧发布
 extern int  init_map_size, con_frame_num;
 extern double match_s, satu_acc, satu_gyro, cut_frame_time_interval;
 extern float  plane_thr;

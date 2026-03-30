@@ -46,7 +46,7 @@
                            0.0, 0.0, 1.0 ]
 
         odometry:
-            publish_odometry_without_downsample: true
+            odom_pub_freq: 300.0  # 里程计发布频率 (Hz)，在 runPointByPointUpdate 中按此频率发布
 
         publish:
             path_en: true                 # false: close the path output

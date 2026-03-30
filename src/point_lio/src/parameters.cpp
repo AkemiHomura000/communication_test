@@ -12,7 +12,8 @@ std::vector<double> extrinR(9, 0.0);
 state_output state_out;
 std::string lid_topic, imu_topic;
 bool prop_at_freq_of_imu = true, check_satu = true, con_frame = false, cut_frame = false;
-bool space_down_sample = true, publish_odometry_without_downsample = false;
+bool space_down_sample = true;
+double odom_pub_freq = 100.0; // 里程计发布频率 (Hz)，默认 100 Hz
 int  init_map_size = 10, con_frame_num = 1;
 double match_s = 81, satu_acc, satu_gyro, cut_frame_time_interval = 0.1;
 float  plane_thr = 0.1f;
@@ -89,7 +90,8 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->declare_parameter<std::vector<double>>("mapping.gravity_init", {0, 0, -9.810});
   nh->declare_parameter<std::vector<double>>("mapping.extrinsic_T", {0, 0, 0});
   nh->declare_parameter<std::vector<double>>("mapping.extrinsic_R", {1, 0, 0, 0, 1, 0, 0, 0, 1});
-  nh->declare_parameter<bool>("odometry.publish_odometry_without_downsample", false);
+  nh->declare_parameter<bool>("odometry.publish_odometry_without_downsample", false); // 已废弃，保留兼容
+  nh->declare_parameter<double>("odometry.odom_pub_freq", 100.0);
   nh->declare_parameter<bool>("publish.path_en", true);
   nh->declare_parameter<bool>("publish.scan_publish_en", true);
   nh->declare_parameter<bool>("publish.scan_bodyframe_pub_en", true);
@@ -141,7 +143,7 @@ void readParameters(shared_ptr<rclcpp::Node> &nh)
   nh->get_parameter("mapping.gravity_init", gravity_init);
   nh->get_parameter("mapping.extrinsic_T", extrinT);
   nh->get_parameter("mapping.extrinsic_R", extrinR);
-  nh->get_parameter("odometry.publish_odometry_without_downsample", publish_odometry_without_downsample);
+  nh->get_parameter("odometry.odom_pub_freq", odom_pub_freq);
   nh->get_parameter("publish.path_en", path_en);
   nh->get_parameter("publish.scan_publish_en", scan_pub_en);
   nh->get_parameter("publish.scan_bodyframe_pub_en", scan_body_pub_en);
