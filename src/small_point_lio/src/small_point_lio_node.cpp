@@ -58,7 +58,7 @@ namespace small_point_lio {
 
             geometry_msgs::msg::TransformStamped transform_stamped;
             transform_stamped.header.stamp = time_msg;
-            transform_stamped.header.frame_id = "odom";
+            transform_stamped.header.frame_id = "lidar_odom";
             transform_stamped.child_frame_id = "base_link";
             geometry_msgs::msg::TransformStamped base_link_to_lidar_frame_transform;
             try {
@@ -77,7 +77,7 @@ namespace small_point_lio {
 
             nav_msgs::msg::Odometry odometry_msg;
             odometry_msg.header.stamp = time_msg;
-            odometry_msg.header.frame_id = "odom";
+            odometry_msg.header.frame_id = "lidar_odom";
             odometry_msg.child_frame_id = "base_link";
             odometry_msg.pose.pose.position.x = transform_stamped.transform.translation.x;
             odometry_msg.pose.pose.position.y = transform_stamped.transform.translation.y;
@@ -87,7 +87,7 @@ namespace small_point_lio {
             odometry_msg.pose.pose.orientation.z = transform_stamped.transform.rotation.z;
             odometry_msg.pose.pose.orientation.w = transform_stamped.transform.rotation.w;
 
-            // TODO it is lidar_odom->lidar_frame, we need to transform it to odom->base_link
+            // TODO it is lidar_odom->lidar_frame, we need to transform it to lidar_odom->base_link
             // odometry_msg.twist.twist.linear.x = odometry.velocity.x();
             // odometry_msg.twist.twist.linear.y = odometry.velocity.y();
             // odometry_msg.twist.twist.linear.z = odometry.velocity.z();
@@ -124,7 +124,7 @@ namespace small_point_lio {
                                 .toRotationMatrix();
                 sensor_msgs::msg::PointCloud2 msg;
                 msg.header.stamp = time_msg;
-                msg.header.frame_id = "odom";
+                msg.header.frame_id = "lidar_odom";
                 msg.width = pointcloud.size();
                 msg.height = 1;
                 msg.fields.reserve(4);

@@ -88,7 +88,7 @@ namespace small_point_lio {
             const common::Point &dense_point_lidar_frame = preprocess.dense_point_deque.front();
             const common::ImuMsg &imu_msg = preprocess.imu_deque.front();
             if (dense_point_lidar_frame.timestamp < point_lidar_frame.timestamp && dense_point_lidar_frame.timestamp < imu_msg.timestamp) {
-                // collect odom frame pointcloud
+                // collect lidar_odom frame pointcloud
                 Eigen::Matrix<state::value_type, 3, 1> dense_point_imu_frame;
                 if (parameters.extrinsic_est_en) {
                     dense_point_imu_frame = estimator.kf.x.offset_R_L_I * dense_point_lidar_frame.position.cast<state::value_type>() + estimator.kf.x.offset_T_L_I;

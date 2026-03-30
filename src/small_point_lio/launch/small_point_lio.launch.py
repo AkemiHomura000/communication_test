@@ -5,6 +5,22 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    rviz_config = PathJoinSubstitution(
+        [
+            FindPackageShare("small_point_lio"),
+            "rviz",
+            "default.rviz",
+        ]
+    )
+
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", rviz_config],
+    )
+
     small_point_lio_node = Node(
         package="small_point_lio",
         executable="small_point_lio_node",
@@ -44,4 +60,8 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription([small_point_lio_node, static_base_link_to_livox_frame])
+    return LaunchDescription([
+        rviz_node,
+        small_point_lio_node,
+        static_base_link_to_livox_frame
+    ])
