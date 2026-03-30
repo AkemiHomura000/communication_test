@@ -47,7 +47,6 @@ bool flg_reset = false, flg_exit = false;
 
 // surf feature in map
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
-PointCloudXYZI::Ptr feats_undistort_B(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body_space(new PointCloudXYZI());
 PointCloudXYZI::Ptr init_feats_world(new PointCloudXYZI());
 std::deque<PointCloudXYZI::Ptr> depth_feats_world;
@@ -197,7 +196,6 @@ void publish_init_map(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Sh
 
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
-PointCloudXYZI::Ptr pcl_wait_save_B(new PointCloudXYZI());
 void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pubLaserCloudFullRes)
 {
   if (scan_pub_en)
@@ -214,12 +212,6 @@ void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>:
       laserCloudWorld->points[i].z = feats_down_world->points[i].z;
       laserCloudWorld->points[i].intensity =
           feats_down_world->points[i].intensity; // feats_down_world->points[i].y; //
-    }
-
-    // Add LiDAR B
-    for (auto &p : feats_undistort_B->points)
-    {
-        laserCloudWorld->push_back(p);
     }
 
     sensor_msgs::msg::PointCloud2 laserCloudmsg;
@@ -248,7 +240,6 @@ void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>:
     }
 
     *pcl_wait_save += *laserCloudWorld;
-    *pcl_wait_save_B += *feats_undistort_B;
 
     // static int scan_wait_num = 0;
     // scan_wait_num++;
@@ -428,10 +419,6 @@ int main(int argc, char **argv)
 
   Lidar_T_wrt_IMU << VEC_FROM_ARRAY(extrinT);
   Lidar_R_wrt_IMU << MAT_FROM_ARRAY(extrinR);
-  Lidar_T_B_wrt_A << VEC_FROM_ARRAY(extrinT_B);
-  Lidar_R_B_wrt_A << MAT_FROM_ARRAY(extrinR_B);
-  Lidar_R_wrt_IMU_B = Lidar_R_wrt_IMU * Lidar_R_B_wrt_A;
-  Lidar_T_wrt_IMU_B = Lidar_R_wrt_IMU * Lidar_T_B_wrt_A + Lidar_T_wrt_IMU;
 
   if (extrinsic_est_en)
   {
@@ -447,7 +434,7 @@ int main(int argc, char **argv)
     }
   }
 
-  p_imu->lidar_type = p_pre->lidar_type = p_pre_B->lidar_type = lidar_type;
+  p_imu->lidar_type = p_pre->lidar_type = lidar_type;
   p_imu->imu_en = imu_en;
 
   kf_input.init_dyn_share_modified_2h(get_f_input, df_dx_input, h_model_input);
@@ -468,20 +455,13 @@ int main(int argc, char **argv)
 
   /*** ROS subscribe initialization ***/
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc_;
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc_B_;
   rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr sub_pcl_livox_;
-  rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr sub_pcl_livox_B_;
   if (p_pre->lidar_type == AVIA)
   {
     sub_pcl_livox_ = nh->create_subscription<livox_ros_driver2::msg::CustomMsg>(
         lid_topic, rclcpp::SensorDataQoS(),
         [](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg)
         { livox_pcl_cbk(msg); });
-
-    sub_pcl_livox_B_ = nh->create_subscription<livox_ros_driver2::msg::CustomMsg>(
-        lid_B_topic, rclcpp::SensorDataQoS(),
-        [](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg)
-        { livox_pcl_cbk_B(msg); });
   }
   else
   {
@@ -489,11 +469,6 @@ int main(int argc, char **argv)
         lid_topic, rclcpp::SensorDataQoS(),
         [](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
         { standard_pcl_cbk(msg); });
-
-    sub_pcl_pc_B_ = nh->create_subscription<sensor_msgs::msg::PointCloud2>(
-        lid_B_topic, rclcpp::SensorDataQoS(),
-        [](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
-        { standard_pcl_cbk_B(msg); });
   }
 
   auto sub_imu = nh->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS(), imu_cbk);
@@ -746,7 +721,6 @@ int main(int argc, char **argv)
       
       auto seq_start_wall = std::chrono::high_resolution_clock::now();
       double seq_start_ros = 0, seq_end_ros = 0;
-      feats_undistort_B->clear();
       for (k = 0; k < (int)time_seq.size(); k++)
       {
         auto point_start_wall = std::chrono::high_resolution_clock::now();
@@ -880,56 +854,6 @@ int main(int argc, char **argv)
           continue;
         }
         solve_start = omp_get_wtime();
-
-        /*** Process LiDAR B for merged output ***/
-        mtx_buffer.lock();
-        if (!lidar_buffer_B.empty())
-        {
-          double target_time = time_current;
-          int best_idx = -1;
-          double min_diff = 1e3;
-          for (size_t i = 0; i < time_buffer_B.size(); i++)
-          {
-            double diff = std::abs(time_buffer_B[i] - target_time);
-            if (diff < min_diff)
-            {
-              min_diff = diff;
-              best_idx = i;
-            }
-          }
-
-          if (best_idx != -1 && min_diff < 0.0001)
-          { // 10ms window, 建议通过调节外参或时间偏移来对齐
-            PointCloudXYZI::Ptr raw_B = lidar_buffer_B[best_idx];
-            
-            RCLCPP_INFO_THROTTLE(logger, *nh->get_clock(), 1000, "Merging LiDAR B at time: %.6f (diff %.6f s)", time_buffer_B[best_idx], min_diff);
-            for (auto &p : raw_B->points)
-            {
-              PointType p_world;
-              // Transform point to Body frame using B->A and then Body->World
-              V3D p_b(p.x, p.y, p.z);
-              if (p.x < 0.15 && p.x > -0.15 && p.y < 0.1 && p.y > -0.4)
-                continue;
-              V3D p_body = Lidar_R_wrt_IMU_B * p_b + Lidar_T_wrt_IMU_B;
-              V3D p_w = kf_output.x_.rot * p_body + kf_output.x_.pos;
-
-              p_world.x = p_w.x();
-              p_world.y = p_w.y();
-              p_world.z = p_w.z();
-              p_world.intensity = p.intensity;
-              feats_undistort_B->push_back(p_world);
-            }
-
-            // Clear old data
-            while (best_idx >= 0 && !lidar_buffer_B.empty())
-            {
-              lidar_buffer_B.pop_front();
-              time_buffer_B.pop_front();
-              best_idx--;
-            }
-          }
-        }
-        mtx_buffer.unlock();
 
         if (publish_odometry_without_downsample)
         {
@@ -1326,15 +1250,9 @@ int main(int argc, char **argv)
     pcl::PCDWriter pcd_writer;
     if (pcl_wait_save->size() > 0)
     {
-      string all_points_dir(string(string(ROOT_DIR) + "PCD/map_A.pcd"));
+      string all_points_dir(string(string(ROOT_DIR) + "PCD/map.pcd"));
       pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-      std::cout << "pcd A save to " << all_points_dir << std::endl;
-    }
-    if (pcl_wait_save_B->size() > 0)
-    {
-      string all_points_dir_B(string(string(ROOT_DIR) + "PCD/map_B.pcd"));
-      pcd_writer.writeBinary(all_points_dir_B, *pcl_wait_save_B);
-      std::cout << "pcd B save to " << all_points_dir_B << std::endl;
+      std::cout << "pcd save to " << all_points_dir << std::endl;
     }
   }
   fout_out.close();
