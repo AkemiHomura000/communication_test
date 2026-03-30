@@ -197,6 +197,7 @@ void publish_init_map(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Sh
 
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
+PointCloudXYZI::Ptr pcl_wait_save_B(new PointCloudXYZI());
 void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pubLaserCloudFullRes)
 {
   if (scan_pub_en)
@@ -247,19 +248,18 @@ void publish_frame_world(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>:
     }
 
     *pcl_wait_save += *laserCloudWorld;
+    *pcl_wait_save_B += *feats_undistort_B;
 
-    static int scan_wait_num = 0;
-    scan_wait_num++;
-    if (pcl_wait_save->size() > 0 && pcd_save_interval > 0 && scan_wait_num >= pcd_save_interval)
-    {
-      pcd_index++;
-      string all_points_dir(string(string(ROOT_DIR) + "PCD/scans_") + to_string(pcd_index) + string(".pcd"));
-      pcl::PCDWriter pcd_writer;
-      cout << "current scan saved to /PCD/" << all_points_dir << endl;
-      pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-      pcl_wait_save->clear();
-      scan_wait_num = 0;
-    }
+    // static int scan_wait_num = 0;
+    // scan_wait_num++;
+    // if (pcl_wait_save->size() > 0 && pcd_save_interval > 0 && scan_wait_num >= pcd_save_interval)
+    // {
+    //   pcd_index++;
+    //   pcl::PCDWriter pcd_writer;
+    //   pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+    //   pcl_wait_save->clear();
+    //   scan_wait_num = 0;
+    // }
   }
 }
 
@@ -501,7 +501,12 @@ int main(int argc, char **argv)
   auto pubLaserCloudFullRes_body = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered_body", 1000);
   auto pubLaserCloudEffect = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 1000);
   auto pubLaserCloudMap = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/Laser_map", 1000);
-  auto pubOdomAftMapped = nh->create_publisher<nav_msgs::msg::Odometry>("/Odometry", 1000);
+  // SensorDataQoS: BEST_EFFORT + KEEP_LAST(10).
+  // KEEP_LAST(1000) with RELIABLE caused DDS to buffer ~2s of messages (500 Hz * 2s).
+  // When rviz2 subscribed it received all 1000 stale frames sequentially before
+  // reaching the current pose, appearing as extremely slow odometry updates.
+  // TF was unaffected because tf_broadcaster bypasses the DDS topic queue.
+  auto pubOdomAftMapped = nh->create_publisher<nav_msgs::msg::Odometry>("/Odometry", rclcpp::SensorDataQoS());
   auto pubPath = nh->create_publisher<nav_msgs::msg::Path>("/path", 1000);
   auto plane_pub = nh->create_publisher<visualization_msgs::msg::Marker>("/planner_normal", 1000);
   auto tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(nh);
@@ -523,7 +528,7 @@ int main(int argc, char **argv)
       rate.sleep();
       continue;
     }
-    RCLCPP_INFO(logger, "sync");
+    // RCLCPP_INFO(logger, "sync");
     // todo 确认是否启用
     if (flg_reset)
     {
@@ -731,8 +736,9 @@ int main(int argc, char **argv)
     /**** point by point update ****/
     if (time_seq.size() > 0)
     {
-      RCLCPP_INFO(logger, " point by point update ");
-      RCLCPP_INFO(logger, " time_seq.size : %d ", (int)time_seq.size());
+      RCLCPP_INFO_THROTTLE(logger, *nh->get_clock(), 1000, "point by point update: %d", (int)time_seq.size());
+      // RCLCPP_INFO(logger, " point by point update ");
+      // RCLCPP_INFO(logger, " time_seq.size : %d ", (int)time_seq.size());
 
       double pcl_beg_time = Measures.lidar_beg_time;
       idx = -1;
@@ -740,7 +746,7 @@ int main(int argc, char **argv)
       
       auto seq_start_wall = std::chrono::high_resolution_clock::now();
       double seq_start_ros = 0, seq_end_ros = 0;
-
+      feats_undistort_B->clear();
       for (k = 0; k < (int)time_seq.size(); k++)
       {
         auto point_start_wall = std::chrono::high_resolution_clock::now();
@@ -875,6 +881,56 @@ int main(int argc, char **argv)
         }
         solve_start = omp_get_wtime();
 
+        /*** Process LiDAR B for merged output ***/
+        mtx_buffer.lock();
+        if (!lidar_buffer_B.empty())
+        {
+          double target_time = time_current;
+          int best_idx = -1;
+          double min_diff = 1e3;
+          for (size_t i = 0; i < time_buffer_B.size(); i++)
+          {
+            double diff = std::abs(time_buffer_B[i] - target_time);
+            if (diff < min_diff)
+            {
+              min_diff = diff;
+              best_idx = i;
+            }
+          }
+
+          if (best_idx != -1 && min_diff < 0.0001)
+          { // 10ms window, 建议通过调节外参或时间偏移来对齐
+            PointCloudXYZI::Ptr raw_B = lidar_buffer_B[best_idx];
+            
+            RCLCPP_INFO_THROTTLE(logger, *nh->get_clock(), 1000, "Merging LiDAR B at time: %.6f (diff %.6f s)", time_buffer_B[best_idx], min_diff);
+            for (auto &p : raw_B->points)
+            {
+              PointType p_world;
+              // Transform point to Body frame using B->A and then Body->World
+              V3D p_b(p.x, p.y, p.z);
+              if (p.x < 0.15 && p.x > -0.15 && p.y < 0.1 && p.y > -0.4)
+                continue;
+              V3D p_body = Lidar_R_wrt_IMU_B * p_b + Lidar_T_wrt_IMU_B;
+              V3D p_w = kf_output.x_.rot * p_body + kf_output.x_.pos;
+
+              p_world.x = p_w.x();
+              p_world.y = p_w.y();
+              p_world.z = p_w.z();
+              p_world.intensity = p.intensity;
+              feats_undistort_B->push_back(p_world);
+            }
+
+            // Clear old data
+            while (best_idx >= 0 && !lidar_buffer_B.empty())
+            {
+              lidar_buffer_B.pop_front();
+              time_buffer_B.pop_front();
+              best_idx--;
+            }
+          }
+        }
+        mtx_buffer.unlock();
+
         if (publish_odometry_without_downsample)
         {
           /******* Publish odometry *******/
@@ -883,7 +939,7 @@ int main(int argc, char **argv)
           auto now_publish_odom_time = std::chrono::high_resolution_clock::now();
           auto duration_since_last_publish =
               std::chrono::duration<double, std::milli>(now_publish_odom_time - last_publish_odom_time).count();
-          if (duration_since_last_publish >= 0.5) // 2000hz
+          if (duration_since_last_publish >= 1.0) // 200hz
           {
             publish_odometry(pubOdomAftMapped, tf_broadcaster, tf_buffer, nh->get_logger());
             last_publish_odom_time = now_publish_odom_time;
@@ -925,7 +981,7 @@ int main(int argc, char **argv)
           RCLCPP_WARN(logger, "[Perf] Sequence LAGGING: Processing Time (%.2f ms) > ROS Time (%.2f ms)!", 
                       wall_duration_ms, ros_duration_ms);
       } else if (ros_duration_ms > 1e-3) {
-          RCLCPP_INFO(logger, "[Perf] Sequence Real-time OK: Processing Time (%.2f ms) <= ROS Time (%.2f ms)", 
+          RCLCPP_INFO_THROTTLE(logger, *nh->get_clock(), 1000, "[Perf] Sequence Real-time OK: Processing Time (%.2f ms) <= ROS Time (%.2f ms)", 
                       wall_duration_ms, ros_duration_ms);
       }
     }
@@ -1208,57 +1264,7 @@ int main(int argc, char **argv)
 
     t5 = omp_get_wtime();
 
-    /*** Process LiDAR B for merged output ***/
-    mtx_buffer.lock();
-    if (!lidar_buffer_B.empty()) {
-        double target_time = Measures.lidar_beg_time;
-        int best_idx = -1;
-        double min_diff = 1e9;
-        for (size_t i = 0; i < time_buffer_B.size(); i++) {
-            double diff = std::abs(time_buffer_B[i] - target_time);
-            if (diff < min_diff) {
-                min_diff = diff;
-                best_idx = i;
-            }
-        }
-        
-        if (best_idx != -1 && min_diff < 0.2) { // 200ms window
-            PointCloudXYZI::Ptr raw_B = lidar_buffer_B[best_idx];
-            feats_undistort_B->clear();
-            
-            // For B undistortion: 
-            // In Point-LIO, we can approximate the pose at each point's timestamp B(t)
-            // using the kf_output state at the end of the scan, but that's not quite right.
-            // However, for visualization, using the current kf_output state is often okay 
-            // if we transform them to A's body frame first.
-            
-            for (auto &p : raw_B->points) {
-                PointType p_world;
-                // Transform point to Body frame using B->A and then Body->World
-                // Here we use the end-of-scan state for all B points for now, 
-                // which is "rigid" but at the correct latest pose.
-                // To do true undistort, we'd need a trajectory buffer.
-                
-                V3D p_b(p.x, p.y, p.z);
-                V3D p_body = Lidar_R_wrt_IMU_B * p_b + Lidar_T_wrt_IMU_B;
-                V3D p_w = kf_output.x_.rot * p_body + kf_output.x_.pos;
-                
-                p_world.x = p_w.x();
-                p_world.y = p_w.y();
-                p_world.z = p_w.z();
-                p_world.intensity = p.intensity;
-                feats_undistort_B->push_back(p_world);
-            }
-            
-            // Clear old data
-            while (best_idx >= 0 && !lidar_buffer_B.empty()) {
-                lidar_buffer_B.pop_front();
-                time_buffer_B.pop_front();
-                best_idx--;
-            }
-        }
-    }
-    mtx_buffer.unlock();
+   
 
     /******* Publish points *******/
     if (path_en)
@@ -1315,14 +1321,21 @@ int main(int argc, char **argv)
   //--------------------------save map-----------------------------------
   /* 1. make sure you have enough memories
      2. noted that pcd save will influence the real-time performences **/
-  if (pcl_wait_save->size() > 0 && pcd_save_en)
+  if (pcd_save_en)
   {
-    // string(ROOT_DIR)=src/point_lio/
-    string all_points_dir(string(string(ROOT_DIR) + "PCD/map") + string(".pcd"));
     pcl::PCDWriter pcd_writer;
-    pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-    std::cout << "pcd save to " << all_points_dir << std::endl;
-    // pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+    if (pcl_wait_save->size() > 0)
+    {
+      string all_points_dir(string(string(ROOT_DIR) + "PCD/map_A.pcd"));
+      pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+      std::cout << "pcd A save to " << all_points_dir << std::endl;
+    }
+    if (pcl_wait_save_B->size() > 0)
+    {
+      string all_points_dir_B(string(string(ROOT_DIR) + "PCD/map_B.pcd"));
+      pcd_writer.writeBinary(all_points_dir_B, *pcl_wait_save_B);
+      std::cout << "pcd B save to " << all_points_dir_B << std::endl;
+    }
   }
   fout_out.close();
   fout_imu_pbp.close();

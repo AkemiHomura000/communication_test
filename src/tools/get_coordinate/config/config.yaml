@@ -1,0 +1,4 @@
+scale: 3
+map_pgm: "/home/rm/Desktop/sp_nav_26/src/tools/map_process/pgm/map.pgm"
+map_yaml: "/home/rm/Desktop/sp_nav_26/src/tools/map_process/pgm/map.yaml"
+point_list: "/home/rm/Desktop/sp_nav_26/src/tools/get_coordinate/config/points.yaml"

@@ -1,1 +1,0 @@
-bool gimbal_stop  #1:stop

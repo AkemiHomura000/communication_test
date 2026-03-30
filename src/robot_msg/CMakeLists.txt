@@ -15,7 +15,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(builtin_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
 
@@ -31,26 +34,22 @@ if(BUILD_TESTING)
 endif()
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/MyMsg.msg"
+  "msg/AutoaimTargetMsg.msg"
+  "msg/TempCostmapMsg.msg"
+  "msg/RobotKinematics.msg"
+  "msg/RobotKinematicsArray.msg"
+  "msg/KeyPoseMsg.msg"
+  "msg/MincoTrajectoryMsg.msg"
   "msg/RobotHpMsg.msg"
   "msg/RefereeInfoMsg.msg"
-  "msg/AutoaimTargetMsg.msg"
-  "msg/PathFllowMsg.msg"
-  "msg/RandMoveMsg.msg"
-  "msg/GimbalControlMsg.msg"
-  "msg/RotateModeMsg.msg"
-  "msg/BtSelectMsg.msg"
-  "msg/RelocalizationMsg.msg"
   "msg/AreaStatusMsg.msg"
-  "msg/VelControlMsg.msg"
-  "msg/GimbalStopMsg.msg"
-  "msg/TempCostmapMsg.msg"
-  "msg/LogMsg.msg"
-  "msg/LioStateMsg.msg"
-  "msg/GlobalRelocalizationMsg.msg"
   "msg/ChassisMsg.msg"
-  "srv/OccupyCheck.srv"
-  "srv/GlobalRelocalization.srv" 
-  DEPENDENCIES builtin_interfaces geometry_msgs
+  "msg/GimbalControlMsg.msg"
+  "msg/ChassisModeMsg.msg"
+  "msg/PostureControlMsg.msg"
+  "msg/PostureFeedbackMsg.msg"
+  "action/NavigateToPose.action"
+
+  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs action_msgs nav_msgs
 )
 ament_package()
