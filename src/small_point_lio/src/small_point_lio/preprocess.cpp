@@ -35,6 +35,9 @@ namespace small_point_lio {
                 continue;
             }
             float dist = point.position.squaredNorm();
+            if(point.position[0] < 0.4&&point.position[1] < 0.4) {
+                continue;
+            }
             if (dist < parameters->min_distance_squared || dist > parameters->max_distance_squared) {
                 continue;
             }

@@ -1,17 +1,17 @@
 small_point_lio:
     ros__parameters:
-        lidar_topic: /livox/lidar_192_168_1_133                  # 点云话题名
-        imu_topic: /livox/imu_192_168_1_133                      # IMU话题名
+        lidar_topic: /livox/lidar_192_168_1_183                  # 点云话题名
+        imu_topic: /livox/imu_192_168_1_183                      # IMU话题名
         lidar_type: livox_custom_msg              # 雷达类型 livox_custom_msg, livox_pointcloud2, custom_mid360_driver, unilidar
         lidar_frame: livox_frame                   # 雷达坐标系
         save_pcd: true                            # 是否保存点云
 
         # 点云过滤
-        point_filter_num: 1                        # 多少个点取一个点
-        min_distance: 0.5                          # 点云半径最小值，小于该值会被过滤
+        point_filter_num: 3                        # 多少个点取一个点
+        min_distance: 0.9                          # 点云半径最小值，小于该值会被过滤
         max_distance: 1000.0                       # 点云半径最大值，大于该值会被过滤
-        space_downsample: false                     # 是否启用点云降采样
-        space_downsample_leaf_size: 0.5            # 点云降采样时使用的栅格大小
+        space_downsample: true                     # 是否启用点云降采样
+        space_downsample_leaf_size: 0.2            # 点云降采样时使用的栅格大小
 
         # IMU处理
         gravity: [0.0, 0.0, -9.810]                # 重力
@@ -22,9 +22,9 @@ small_point_lio:
         acc_norm: 1.0                              # IMU的加速度模长
 
         # 地图
-        map_resolution: 0.5                        # 地图分辨率
+        map_resolution: 0.2                        # 地图分辨率
         init_map_size: 10                          # 接收到多少个点才初始化地图
-
+ 
         # 雷达与IMU相对位姿
         extrinsic_est_en: false                    # 雷达与IMU的相对位姿是否通过预测得到
         extrinsic_T: [-0.011, -0.02329, 0.04412]
@@ -43,7 +43,7 @@ small_point_lio:
         omg_cov: 1000.0                            # 角速度的协方差
         ba_cov: 0.0001                             # 加速度偏置的协方差
         bg_cov: 0.0001                             # 角速度偏置的协方差
-        plane_threshold: 0.1                       # 平面匹配阈值，越小表示越严格
+        plane_threshold: 0.05                       # 平面匹配阈值，越小表示越严格
         match_sqaured: 81.0                        # 当前点是否在平面上的阈值，越小表示越严格
 
         # 数据发布
