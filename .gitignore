@@ -3,3 +3,4 @@ install
 log
 bag
 pcd_output
+.venv

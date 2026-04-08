@@ -4,10 +4,6 @@ icp_pcd_match.py
 ================
 对两个 .pcd 文件做 ICP 点云配准，输出变换结果并可视化。
 
-用法
-----
-python3 icp_pcd_match.py <source.pcd> <target.pcd> [选项]
-
 说明
 ----
   source  : 待变换点云（例如第二个激光雷达的点云）
@@ -35,7 +31,45 @@ python3 icp_pcd_match.py <source.pcd> <target.pcd> [选项]
   pip install open3d numpy scipy
 """
 
-import argparse
+# ===========================================================================
+#  ★★★  用户配置区  ★★★  —— 所有参数均在此处修改，无需改动下方代码
+# ===========================================================================
+
+# ---------- 文件路径 ----------
+SOURCE_PCD = "/home/rm/Desktop/communication_test/src/tools/lidar_extrinsic_calibration/pcd_output/livox_lidar_192_168_1_133_integrated_100frames.pcd"   # 待配准点云路径（第二个激光雷达）
+TARGET_PCD = "/home/rm/Desktop/communication_test/src/tools/lidar_extrinsic_calibration/pcd_output/livox_lidar_192_168_1_183_integrated_100frames.pcd"   # 参考点云路径（第一个激光雷达 / 地图）
+
+# ---------- 初始粗变换（平移 + 欧拉角） ----------
+# 根据先验知识手动填写，用于给 ICP 提供良好初值。
+# 若两帧点云已近似对齐，保持全零即可。
+#
+# 旋转约定：ZYX 外旋（即先绕 Z 转 yaw，再绕 Y 转 pitch，再绕 X 转 roll）
+# 单位：平移 m，角度 deg
+INIT_TX    =  0.0   # 沿 X 轴平移（m）
+INIT_TY    =  0.0   # 沿 Y 轴平移（m）
+INIT_TZ    =  0.0   # 沿 Z 轴平移（m）
+INIT_ROLL  =  90.0   # 绕 X 轴旋转，roll（deg）
+INIT_PITCH =  0.0   # 绕 Y 轴旋转，pitch（deg）
+INIT_YAW   =  0.0   # 绕 Z 轴旋转，yaw（deg）
+
+# ---------- ICP 参数 ----------
+# 配准方法：
+#   "point_to_point"  —— 点对点（最通用，不需要法线）
+#   "point_to_plane"  —— 点对面（精度更高，需要估计法线）
+#   "generalized"     —— 广义 ICP（鲁棒性强，需要估计法线）
+ICP_METHOD   = "point_to_plane"
+
+VOXEL_SIZE   = 0.05    # 体素降采样大小（m），0 表示不降采样
+ICP_DIST     = 0.5     # ICP 最大对应点距离阈值（m）
+ICP_MAX_ITER = 200     # ICP 最大迭代次数
+
+# ---------- 可视化 ----------
+NO_VIS = False   # True = 不弹出可视化窗口
+
+# ===========================================================================
+#  以下为功能实现代码，通常无需修改
+# ===========================================================================
+
 import math
 import sys
 
@@ -83,52 +117,6 @@ def rotmat_to_euler_zyx(R: np.ndarray):
         pitch = math.atan2(-R33[2, 0], sy)
         yaw   = 0.0
     return roll, pitch, yaw
-
-
-# ---------------------------------------------------------------------------
-# 点云预处理
-# ---------------------------------------------------------------------------
-
-def preprocess(pcd: o3d.geometry.PointCloud,
-               voxel_size: float) -> tuple:
-    """
-    体素降采样 + 法线估计 + FPFH 特征提取。
-    返回 (pcd_down, fpfh)
-    """
-    pcd_down = pcd.voxel_down_sample(voxel_size)
-
-    radius_normal = voxel_size * 2.0
-    pcd_down.estimate_normals(
-        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30)
-    )
-
-    radius_feature = voxel_size * 5.0
-    fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-        pcd_down,
-        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100)
-    )
-    return pcd_down, fpfh
-
-
-def global_registration(src_down, tgt_down, src_fpfh, tgt_fpfh,
-                         voxel_size: float) -> o3d.pipelines.registration.RegistrationResult:
-    """
-    基于 FPFH 的快速全局配准（RANSAC），用于给 ICP 提供初始变换。
-    """
-    distance_threshold = voxel_size * 1.5
-    result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-        src_down, tgt_down, src_fpfh, tgt_fpfh,
-        mutual_filter=True,
-        max_correspondence_distance=distance_threshold,
-        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
-        ransac_n=3,
-        checkers=[
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold),
-        ],
-        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999),
-    )
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -231,12 +219,11 @@ def run_icp(src_path: str,
             icp_dist: float,
             icp_max_iter: int,
             method: str,
-            use_global: bool,
             init_T: np.ndarray,
             no_vis: bool):
 
     # ---- 读取 ----
-    print(f"[1/5] 读取点云")
+    print(f"[1/4] 读取点云")
     print(f"      source : {src_path}")
     print(f"      target : {tgt_path}")
 
@@ -253,9 +240,9 @@ def run_icp(src_path: str,
     print(f"      source 点数: {len(src.points)}")
     print(f"      target 点数: {len(tgt.points)}")
 
-    # ---- 降采样（仅用于全局配准和 point-to-plane ICP） ----
+    # ---- 降采样（point-to-plane / generalized 使用降采后点云） ----
     if voxel_size > 0:
-        print(f"\n[2/5] 体素降采样 (voxel_size={voxel_size} m)")
+        print(f"\n[2/4] 体素降采样 (voxel_size={voxel_size} m)")
         src_down = src.voxel_down_sample(voxel_size)
         tgt_down = tgt.voxel_down_sample(voxel_size)
         print(f"      source 降采后: {len(src_down.points)} 点")
@@ -264,29 +251,12 @@ def run_icp(src_path: str,
         src_down = src
         tgt_down = tgt
 
-    # ---- 全局粗配准（可选） ----
+    # ---- 使用手动设置的初始粗变换 ----
     T_init = init_T.copy()
-    if use_global:
-        print(f"\n[3/5] 全局粗配准 (FPFH + RANSAC) …")
-        if voxel_size <= 0:
-            gs = 0.05
-            src_gs = src.voxel_down_sample(gs)
-            tgt_gs = tgt.voxel_down_sample(gs)
-        else:
-            gs = voxel_size
-            src_gs, tgt_gs = src_down, tgt_down
-
-        src_gs_d, src_fpfh = preprocess(src_gs, gs)
-        tgt_gs_d, tgt_fpfh = preprocess(tgt_gs, gs)
-
-        global_res = global_registration(src_gs_d, tgt_gs_d, src_fpfh, tgt_fpfh, gs)
-        T_init = global_res.transformation
-        print(f"      全局配准 fitness={global_res.fitness:.4f}")
-    else:
-        print(f"\n[3/5] 跳过全局粗配准（使用单位矩阵或指定初始变换）")
+    print(f"\n[2/4] 使用手动设置的初始粗变换矩阵（见顶部 INIT_T）")
 
     # ---- ICP 精配准 ----
-    print(f"\n[4/5] ICP 精配准 (method={method}, max_dist={icp_dist} m, max_iter={icp_max_iter})")
+    print(f"\n[3/4] ICP 精配准 (method={method}, max_dist={icp_dist} m, max_iter={icp_max_iter})")
 
     if method == "point_to_plane":
         # point-to-plane 需要法线
@@ -329,7 +299,7 @@ def run_icp(src_path: str,
     n_pairs = len(result.correspondence_set)
 
     # ---- 打印结果 ----
-    print(f"\n[5/5] 结果输出")
+    print(f"\n[4/4] 结果输出")
     print_result(T, fitness, inlier_rmse, n_pairs)
 
     # ---- 可视化 ----
@@ -343,83 +313,35 @@ def run_icp(src_path: str,
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# 入口
 # ---------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="ICP 点云配准工具：将 source.pcd 配准到 target.pcd",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例
-----
-# 基本用法（point-to-point ICP，开启全局粗配准）
-python3 icp_pcd_match.py src.pcd tgt.pcd
+if __name__ == "__main__":
+    # 将欧拉角（deg）+ 平移向量 转换为 4×4 变换矩阵
+    import math as _math
+    _roll  = _math.radians(INIT_ROLL)
+    _pitch = _math.radians(INIT_PITCH)
+    _yaw   = _math.radians(INIT_YAW)
 
-# 使用 point-to-plane ICP，指定体素大小和最大对应距离
-python3 icp_pcd_match.py src.pcd tgt.pcd --method point_to_plane --voxel 0.05 --dist 0.1
+    # ZYX 旋转矩阵：R = Rz(yaw) * Ry(pitch) * Rx(roll)
+    _cr, _sr = _math.cos(_roll),  _math.sin(_roll)
+    _cp, _sp = _math.cos(_pitch), _math.sin(_pitch)
+    _cy, _sy = _math.cos(_yaw),   _math.sin(_yaw)
 
-# 不做全局配准（已知初始位置接近），不弹出可视化窗口
-python3 icp_pcd_match.py src.pcd tgt.pcd --no_global --no_vis
-        """,
-    )
-
-    parser.add_argument("source",        help="source 点云文件路径（待配准）")
-    parser.add_argument("target",        help="target 点云文件路径（参考/地图）")
-
-    parser.add_argument(
-        "--method", default="point_to_point",
-        choices=["point_to_point", "point_to_plane", "generalized"],
-        help="ICP 配准方法（默认 point_to_point）",
-    )
-    parser.add_argument(
-        "--voxel", type=float, default=0.05,
-        help="体素降采样大小（m），0 表示不降采样（默认 0.05）",
-    )
-    parser.add_argument(
-        "--dist", type=float, default=0.5,
-        help="ICP 最大对应点距离阈值（m，默认 0.5）",
-    )
-    parser.add_argument(
-        "--max_iter", type=int, default=200,
-        help="ICP 最大迭代次数（默认 200）",
-    )
-    parser.add_argument(
-        "--no_global", action="store_true",
-        help="跳过全局粗配准（RANSAC），直接用单位矩阵初始化",
-    )
-    parser.add_argument(
-        "--no_vis", action="store_true",
-        help="不弹出可视化窗口",
-    )
-    parser.add_argument(
-        "--init_T", type=float, nargs=16, default=None,
-        metavar="T_ij",
-        help="自定义 4×4 初始变换矩阵（行优先展开的 16 个数），会覆盖全局配准结果",
-    )
-
-    args = parser.parse_args()
-
-    # 构造初始变换矩阵
-    if args.init_T is not None:
-        init_T = np.array(args.init_T, dtype=np.float64).reshape(4, 4)
-        use_global = False   # 指定了初始值则不做全局配准
-    else:
-        init_T = np.eye(4, dtype=np.float64)
-        use_global = not args.no_global
+    init_T = np.array([
+        [_cy*_cp,  _cy*_sp*_sr - _sy*_cr,  _cy*_sp*_cr + _sy*_sr,  INIT_TX],
+        [_sy*_cp,  _sy*_sp*_sr + _cy*_cr,  _sy*_sp*_cr - _cy*_sr,  INIT_TY],
+        [   -_sp,             _cp*_sr,                 _cp*_cr,     INIT_TZ],
+        [    0.0,                 0.0,                     0.0,        1.0  ],
+    ], dtype=np.float64)
 
     run_icp(
-        src_path=args.source,
-        tgt_path=args.target,
-        voxel_size=args.voxel,
-        icp_dist=args.dist,
-        icp_max_iter=args.max_iter,
-        method=args.method,
-        use_global=use_global,
+        src_path=SOURCE_PCD,
+        tgt_path=TARGET_PCD,
+        voxel_size=VOXEL_SIZE,
+        icp_dist=ICP_DIST,
+        icp_max_iter=ICP_MAX_ITER,
+        method=ICP_METHOD,
         init_T=init_T,
-        no_vis=args.no_vis,
+        no_vis=NO_VIS,
     )
-
-
-if __name__ == "__main__":
-    main()
