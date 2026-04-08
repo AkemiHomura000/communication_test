@@ -1,0 +1,59 @@
+# Extrinsic calibration: secondary LiDAR  →  primary LiDAR frame
+#
+# Convention
+#   R = Rz(yaw) * Ry(pitch) * Rx(roll)   (ZYX / extrinsic RPY)
+#   p_primary = R * p_secondary + t
+#
+# Fill in the values obtained from your calibration tool.
+# RPY angles are in DEGREES; translation is in METRES.
+
+lidar_merger:
+  ros__parameters:
+    # ── Topic names ────────────────────────────────────────────────────────
+    # livox_ros_driver2 typically names topics by LiDAR IP address.
+    # Adjust to match your driver configuration.
+    primary_topic:   "/livox/lidar_192_168_1_183"
+    secondary_topic: "/livox/lidar_192_168_1_133"
+    output_topic:    "/livox/lidar_merged"
+
+    # ── Extrinsic parameters ───────────────────────────────────────────────
+    extrinsic:
+      roll:  0.0    # degrees  (rotation around X)
+      pitch: 0.0    # degrees  (rotation around Y)
+      yaw:   0.0    # degrees  (rotation around Z)
+      x:     0.0    # metres
+      y:     0.0    # metres
+      z:     0.0    # metres
+
+    # ── Synchronisation ─────────────────────────────────────────────────────
+    # ApproximateTime policy parameters.
+    # Set to < half the LiDAR frame period to ensure dropped frames are
+    # cleanly discarded rather than incorrectly paired with a neighbor frame.
+    # MID360 @ 10Hz → frame period=100ms → safe value ≤ 50ms.
+    sync_queue_size: 10    # message queue depth per topic
+    max_delay:       0.05  # 50ms = half of 100ms frame period
+
+    # ── Per-point timestamp alignment ───────────────────────────────────────
+    # true  → add (t_primary_header - t_secondary_header) to every per-point
+    #         "timestamp" field of the secondary cloud.
+    #         Use when the two LiDARs are NOT hardware-synced (PTP/GPS).
+    # false → leave per-point timestamps untouched.
+    #         Use when both LiDARs share a common PTP/GPS time source.
+    sync_point_timestamps: false
+
+    # ── Diagnostics ─────────────────────────────────────────────────────────
+    # Print a performance + timestamp statistics summary every N seconds.
+    # Set to 0.0 to disable.  Per-frame detail is always available at DEBUG level.
+    print_interval: 5.0
+
+    # ── Secondary cloud time-window clipping ─────────────────────────────────
+    # When enabled, secondary points whose per-point timestamp (after ts
+    # alignment) falls outside [t_primary_header, t_primary_header + 1/lidar_freq]
+    # are discarded before merging.  This prevents secondary points that
+    # "leak" into the next primary frame from corrupting per-point motion
+    # compensation in the downstream SLAM algorithm.
+    # Only active when sync_point_timestamps=true and the cloud has a
+    # "timestamp" field.
+    clip_secondary: true
+    lidar_freq:     10.0   # Hz – must match the actual LiDAR publish rate
+
