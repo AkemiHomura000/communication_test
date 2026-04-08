@@ -18,12 +18,12 @@ lidar_merger:
 
     # ── Extrinsic parameters ───────────────────────────────────────────────
     extrinsic:
-      roll:  90.0    # degrees  (rotation around X)
-      pitch: 0.0    # degrees  (rotation around Y)
-      yaw:   0.0    # degrees  (rotation around Z)
-      x:     0.0    # metres
-      y:     0.0    # metres
-      z:     0.0    # metres
+      roll:  91.9578    # degrees  (rotation around X)
+      pitch: -1.2405    # degrees  (rotation around Y)
+      yaw:   -1.3055    # degrees  (rotation around Z)
+      x:     -0.013395    # metres
+      y:     -0.139984    # metres
+      z:     -0.165038    # metres
 
     # ── Synchronisation ─────────────────────────────────────────────────────
     # ApproximateTime policy parameters.

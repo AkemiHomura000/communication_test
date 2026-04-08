@@ -70,7 +70,7 @@
     ],
     // Topics
     "imu_topic": "/livox/imu_192_168_1_183",
-    "points_topic": "/livox/lidar_192_168_1_183",
+    "points_topic": "/livox/lidar_merged",
     "image_topic": "/image",
     // QoS options
     "imu_qos": {
