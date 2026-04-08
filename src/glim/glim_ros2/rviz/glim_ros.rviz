@@ -6,6 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
+        - /TF1
         - /Odometry1
         - /Odometry1/Shape1
       Splitter Ratio: 0.5
@@ -52,8 +53,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: -2.0937628746032715
-        Min Value: -10.03127670288086
+        Max Value: 6.117074966430664
+        Min Value: -0.3175109624862671
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -79,7 +80,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /glim_ros/points
+        Value: /glim_rosnode/aligned_points
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -95,7 +96,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 4096
@@ -116,7 +117,7 @@ Visualization Manager:
         Value: /glim_ros/map
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15
@@ -134,7 +135,7 @@ Visualization Manager:
       Name: TF
       Show Arrows: true
       Show Axes: true
-      Show Names: false
+      Show Names: true
       Tree:
         map:
           odom:
@@ -248,25 +249,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 63.79356384277344
+      Distance: 26.275787353515625
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 7.8632283210754395
-        Y: -10.443670272827148
-        Z: -0.6216071844100952
+        X: 6.4154534339904785
+        Y: 0.6762697696685791
+        Z: -3.5428476333618164
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5147961974143982
+      Pitch: 0.4897976815700531
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 1.2467668056488037
+      Yaw: 3.3017683029174805
     Saved: ~
 Window Geometry:
   Displays:
@@ -284,5 +285,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1665
-  X: 652
-  Y: 249
+  X: 811
+  Y: 729

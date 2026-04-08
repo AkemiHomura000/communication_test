@@ -18,7 +18,7 @@ lidar_merger:
 
     # ── Extrinsic parameters ───────────────────────────────────────────────
     extrinsic:
-      roll:  0.0    # degrees  (rotation around X)
+      roll:  90.0    # degrees  (rotation around X)
       pitch: 0.0    # degrees  (rotation around Y)
       yaw:   0.0    # degrees  (rotation around Z)
       x:     0.0    # metres
@@ -31,7 +31,7 @@ lidar_merger:
     # cleanly discarded rather than incorrectly paired with a neighbor frame.
     # MID360 @ 10Hz → frame period=100ms → safe value ≤ 50ms.
     sync_queue_size: 10    # message queue depth per topic
-    max_delay:       0.05  # 50ms = half of 100ms frame period
+    max_delay:       0.025  # 25ms = half of 50ms frame period
 
     # ── Per-point timestamp alignment ───────────────────────────────────────
     # true  → add (t_primary_header - t_secondary_header) to every per-point
@@ -44,7 +44,7 @@ lidar_merger:
     # ── Diagnostics ─────────────────────────────────────────────────────────
     # Print a performance + timestamp statistics summary every N seconds.
     # Set to 0.0 to disable.  Per-frame detail is always available at DEBUG level.
-    print_interval: 5.0
+    print_interval: 1.0
 
     # ── Secondary cloud time-window clipping ─────────────────────────────────
     # When enabled, secondary points whose per-point timestamp (after ts
@@ -55,5 +55,5 @@ lidar_merger:
     # Only active when sync_point_timestamps=true and the cloud has a
     # "timestamp" field.
     clip_secondary: true
-    lidar_freq:     10.0   # Hz – must match the actual LiDAR publish rate
+    lidar_freq:     20.0   # Hz – must match the actual LiDAR publish rate
 

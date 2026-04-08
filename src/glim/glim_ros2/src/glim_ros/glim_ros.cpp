@@ -62,8 +62,12 @@ GlimROS::GlimROS(const rclcpp::NodeOptions& options) : Node("glim_ros", options)
   this->declare_parameter<bool>("dump_on_unload", false);
   this->get_parameter<bool>("dump_on_unload", dump_on_unload);
 
+  dump_path = "/tmp/dump";
+  this->declare_parameter<std::string>("dump_path", dump_path);
+  this->get_parameter<std::string>("dump_path", dump_path);
+
   if (dump_on_unload) {
-    spdlog::info("dump_on_unload={}", dump_on_unload);
+    spdlog::info("dump_on_unload={}, dump_path={}", dump_on_unload, dump_path);
   }
 
   std::string config_path;
@@ -208,7 +212,6 @@ GlimROS::~GlimROS() {
   extension_modules.clear();
 
   if (dump_on_unload) {
-    std::string dump_path = "/tmp/dump";
     wait(true);
     save(dump_path);
   }

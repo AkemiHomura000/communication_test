@@ -363,3 +363,7 @@ pip install open3d numpy scipy
 - `sensor_msgs_py`（用于 `integrate_pointcloud_to_pcd.py`）
 - `open3d`（仅用于 `icp_pcd_match.py`，`pip install open3d`）
 
+强制 X11渲染
+export XDG_SESSION_TYPE=x11
+export GDK_BACKEND=x11
+unset WAYLAND_DISPLAY
