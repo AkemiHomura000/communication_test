@@ -195,6 +195,35 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
     quat_world_imu = Eigen::Quaterniond(T_world_imu.linear());
   }
 
+  // Compute base_link pose and velocity in odom frame
+  // T_imu_base: transform from base_link to imu frame (queried from TF)
+  // v_odom_base = v_odom_imu + omega_odom x r_odom  (r_odom = R_odom_imu * t_imu_to_base)
+  Eigen::Isometry3d T_odom_base = T_odom_imu;           // fallback: same as IMU if TF unavailable
+  Eigen::Vector3d v_odom_base = v_odom_imu;             // fallback
+  Eigen::Vector3d omega_odom_base = omega_odom;         // angular velocity same in odom frame
+  {
+    try {
+      // lookupTransform(target, source) => T_target_source = T_imu_base
+      const auto tf_imu_base = tf_buffer->lookupTransform(imu_frame_id, base_frame_id, from_sec(new_frame->stamp));
+      const auto& t = tf_imu_base.transform.translation;
+      const auto& r = tf_imu_base.transform.rotation;
+      Eigen::Isometry3d T_imu_base = Eigen::Isometry3d::Identity();
+      T_imu_base.translation() << t.x, t.y, t.z;
+      T_imu_base.linear() = Eigen::Quaterniond(r.w, r.x, r.y, r.z).toRotationMatrix();
+
+      // T_odom_base = T_odom_imu * T_imu_base
+      T_odom_base = T_odom_imu * T_imu_base;
+
+      // r_odom: position of base_link origin relative to imu origin, expressed in odom frame
+      // t_imu_to_base = T_imu_base.translation() (in imu frame)
+      // r_odom = R_odom_imu * t_imu_to_base
+      const Eigen::Vector3d r_odom = T_odom_imu.linear() * T_imu_base.translation();
+      v_odom_base = v_odom_imu + omega_odom.cross(r_odom);
+    } catch (const tf2::TransformException& e) {
+      logger->warn("Failed to lookup transform from {} to {} for velocity correction: {}", imu_frame_id, base_frame_id, e.what());
+    }
+  }
+
   // Publish transforms
   const auto stamp = from_sec(new_frame->stamp);
   const auto tf_stamp = from_sec(new_frame->stamp + tf_time_offset);
@@ -320,25 +349,26 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
   auto& odom_pub = !corrected ? this->odom_pub : this->odom_corrected_pub;
   auto& lidar_odom_pub = !corrected ? this->lidar_odom_pub : this->lidar_odom_corrected_pub;
   if (odom_pub->get_subscription_count() || lidar_odom_pub->get_subscription_count()) {
-    // Publish sensor pose (without loop closure)
+    // Publish base_link pose in odom frame with corrected velocity
+    const Eigen::Quaterniond quat_odom_base(T_odom_base.linear());
     nav_msgs::msg::Odometry odom;
     odom.header.stamp = stamp;
     odom.header.frame_id = odom_frame_id;
-    odom.child_frame_id = imu_frame_id;
-    odom.pose.pose.position.x = T_odom_imu.translation().x();
-    odom.pose.pose.position.y = T_odom_imu.translation().y();
-    odom.pose.pose.position.z = T_odom_imu.translation().z();
-    odom.pose.pose.orientation.x = quat_odom_imu.x();
-    odom.pose.pose.orientation.y = quat_odom_imu.y();
-    odom.pose.pose.orientation.z = quat_odom_imu.z();
-    odom.pose.pose.orientation.w = quat_odom_imu.w();
+    odom.child_frame_id = base_frame_id;
+    odom.pose.pose.position.x = T_odom_base.translation().x();
+    odom.pose.pose.position.y = T_odom_base.translation().y();
+    odom.pose.pose.position.z = T_odom_base.translation().z();
+    odom.pose.pose.orientation.x = quat_odom_base.x();
+    odom.pose.pose.orientation.y = quat_odom_base.y();
+    odom.pose.pose.orientation.z = quat_odom_base.z();
+    odom.pose.pose.orientation.w = quat_odom_base.w();
 
-    odom.twist.twist.linear.x = v_odom_imu.x();
-    odom.twist.twist.linear.y = v_odom_imu.y();
-    odom.twist.twist.linear.z = v_odom_imu.z();
-    odom.twist.twist.angular.x = omega_odom.x();
-    odom.twist.twist.angular.y = omega_odom.y();
-    odom.twist.twist.angular.z = omega_odom.z();
+    odom.twist.twist.linear.x = v_odom_base.x();
+    odom.twist.twist.linear.y = v_odom_base.y();
+    odom.twist.twist.linear.z = v_odom_base.z();
+    odom.twist.twist.angular.x = omega_odom_base.x();
+    odom.twist.twist.angular.y = omega_odom_base.y();
+    odom.twist.twist.angular.z = omega_odom_base.z();
 
     if (odom_pub->get_subscription_count()) {
       odom_pub->publish(odom);
@@ -360,26 +390,28 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
     }
 
     const Eigen::Isometry3d T_odom_imuend = T_odom_imu * T_imubegin_imuend;
-    const Eigen::Quaterniond quat_odom_imuend(T_odom_imuend.linear());
+    // Apply same imu->base transform to get base_link pose at scan end
+    const Eigen::Isometry3d T_odom_baseend = T_odom_imuend * (T_odom_imu.inverse() * T_odom_base);
+    const Eigen::Quaterniond quat_odom_baseend(T_odom_baseend.linear());
 
     nav_msgs::msg::Odometry odom;
     odom.header.stamp = imu_end_stamp;
     odom.header.frame_id = odom_frame_id;
-    odom.child_frame_id = imu_frame_id;
-    odom.pose.pose.position.x = T_odom_imuend.translation().x();
-    odom.pose.pose.position.y = T_odom_imuend.translation().y();
-    odom.pose.pose.position.z = T_odom_imuend.translation().z();
-    odom.pose.pose.orientation.x = quat_odom_imuend.x();
-    odom.pose.pose.orientation.y = quat_odom_imuend.y();
-    odom.pose.pose.orientation.z = quat_odom_imuend.z();
-    odom.pose.pose.orientation.w = quat_odom_imuend.w();
+    odom.child_frame_id = base_frame_id;
+    odom.pose.pose.position.x = T_odom_baseend.translation().x();
+    odom.pose.pose.position.y = T_odom_baseend.translation().y();
+    odom.pose.pose.position.z = T_odom_baseend.translation().z();
+    odom.pose.pose.orientation.x = quat_odom_baseend.x();
+    odom.pose.pose.orientation.y = quat_odom_baseend.y();
+    odom.pose.pose.orientation.z = quat_odom_baseend.z();
+    odom.pose.pose.orientation.w = quat_odom_baseend.w();
 
-    odom.twist.twist.linear.x = v_odom_imu.x();
-    odom.twist.twist.linear.y = v_odom_imu.y();
-    odom.twist.twist.linear.z = v_odom_imu.z();
-    odom.twist.twist.angular.x = omega_odom.x();
-    odom.twist.twist.angular.y = omega_odom.y();
-    odom.twist.twist.angular.z = omega_odom.z();
+    odom.twist.twist.linear.x = v_odom_base.x();
+    odom.twist.twist.linear.y = v_odom_base.y();
+    odom.twist.twist.linear.z = v_odom_base.z();
+    odom.twist.twist.angular.x = omega_odom_base.x();
+    odom.twist.twist.angular.y = omega_odom_base.y();
+    odom.twist.twist.angular.z = omega_odom_base.z();
 
     if (odom_scan_end_pub->get_subscription_count()) {
       odom_scan_end_pub->publish(odom);

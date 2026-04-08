@@ -54,8 +54,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 3.647820234298706
-        Min Value: -0.3795350193977356
+        Max Value: 3.8213329315185547
+        Min Value: -3.0450212955474854
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -145,7 +145,7 @@ Visualization Manager:
                 {}
       Update Interval: 0
       Value: true
-    - Angle Tolerance: 0.10000000149011612
+    - Angle Tolerance: 0.019999999552965164
       Class: rviz_default_plugins/Odometry
       Covariance:
         Orientation:
@@ -165,7 +165,7 @@ Visualization Manager:
       Enabled: true
       Keep: 1
       Name: Odometry
-      Position Tolerance: 0.10000000149011612
+      Position Tolerance: 0.019999999552965164
       Shape:
         Alpha: 1
         Axes Length: 1
@@ -250,25 +250,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 14.236106872558594
+      Distance: 9.566587448120117
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 6.803019046783447
-        Y: -0.3612149655818939
-        Z: -3.3191111087799072
+        X: 5.5041184425354
+        Y: -1.004520297050476
+        Z: -3.885209083557129
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.0097973346710205
+      Pitch: 0.8647974729537964
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.171765089035034
+      Yaw: 3.18176531791687
     Saved: ~
 Window Geometry:
   Displays:
@@ -286,5 +286,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 2781
-  X: 1686
-  Y: 729
+  X: 1758
+  Y: 475
