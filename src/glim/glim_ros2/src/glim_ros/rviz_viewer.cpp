@@ -146,6 +146,7 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
   // Poses at the end of the scan
   double imu_end_time = new_frame->stamp;
   Eigen::Isometry3d T_imubegin_imuend = Eigen::Isometry3d::Identity();
+  Eigen::Vector3d omega_odom = Eigen::Vector3d::Zero();  // Angular velocity in odom frame
   if (new_frame->imu_rate_trajectory.size()) {
     const Eigen::Matrix<double, 8, 1> imu_begin = new_frame->imu_rate_trajectory.col(0);
     const Eigen::Matrix<double, 8, 1> imu_end = new_frame->imu_rate_trajectory.col(new_frame->imu_rate_trajectory.cols() - 1);
@@ -160,6 +161,21 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
 
     T_imubegin_imuend = T_odom_imubegin.inverse() * T_odom_imuend;
     imu_end_time = imu_end(0);
+
+    // Compute angular velocity in odom frame using left-difference: Log(R1 * R0^T) / dt
+    if (new_frame->imu_rate_trajectory.cols() >= 2) {
+      const int last_col = new_frame->imu_rate_trajectory.cols() - 1;
+      const Eigen::Matrix<double, 8, 1> col_prev = new_frame->imu_rate_trajectory.col(last_col - 1);
+      const Eigen::Matrix<double, 8, 1> col_last = new_frame->imu_rate_trajectory.col(last_col);
+      const double dt = col_last(0) - col_prev(0);
+      if (dt > 1e-9) {
+        const Eigen::Quaterniond q_prev(col_prev(7), col_prev(4), col_prev(5), col_prev(6));
+        const Eigen::Quaterniond q_last(col_last(7), col_last(4), col_last(5), col_last(6));
+        // Left-difference: R_delta in odom frame = R1 * R0^T
+        const Eigen::AngleAxisd delta_rot(q_last * q_prev.inverse());
+        omega_odom = delta_rot.axis() * delta_rot.angle() / dt;
+      }
+    }
   }
 
   Eigen::Isometry3d T_world_odom;
@@ -320,6 +336,9 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
     odom.twist.twist.linear.x = v_odom_imu.x();
     odom.twist.twist.linear.y = v_odom_imu.y();
     odom.twist.twist.linear.z = v_odom_imu.z();
+    odom.twist.twist.angular.x = omega_odom.x();
+    odom.twist.twist.angular.y = omega_odom.y();
+    odom.twist.twist.angular.z = omega_odom.z();
 
     if (odom_pub->get_subscription_count()) {
       odom_pub->publish(odom);
@@ -358,6 +377,9 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
     odom.twist.twist.linear.x = v_odom_imu.x();
     odom.twist.twist.linear.y = v_odom_imu.y();
     odom.twist.twist.linear.z = v_odom_imu.z();
+    odom.twist.twist.angular.x = omega_odom.x();
+    odom.twist.twist.angular.y = omega_odom.y();
+    odom.twist.twist.angular.z = omega_odom.z();
 
     if (odom_scan_end_pub->get_subscription_count()) {
       odom_scan_end_pub->publish(odom);
