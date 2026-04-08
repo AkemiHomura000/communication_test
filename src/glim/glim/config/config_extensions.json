@@ -1,0 +1,10 @@
+{
+  "rviz_viewer": {
+    "publish_world2imu": true,
+    "world_frame_id": "camera_init",
+    "imu_frame_id": "body"
+  },
+  "loop_detection": {
+    "sc_dist_thres": 0.2
+  }
+}
