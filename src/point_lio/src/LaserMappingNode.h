@@ -108,9 +108,16 @@ private:
   void logPbpState();
   void dumpLioStateToLog();
 
+
   // ==================================================================
-  //  监控辅助（已移至 public，此处保留注释占位）
+  //  发散检测
   // ==================================================================
+
+  // 检测 EKF 是否发散，满足任一条件则返回 true
+  bool checkDivergence();
+
+  // 触发软复位：清空地图、重置 KF，回到初始化状态
+  void triggerDivergenceReset(const std::string &reason);
 
   // ==================================================================
   //  退出清理
@@ -207,4 +214,19 @@ private:
   double imu_interval_sum_ = 0.0;
   double imu_interval_max_ = 0.0;
   int    imu_interval_cnt_ = 0;
+
+  // ── 发散检测状态 ──────────────────────────────────────────────────
+  static constexpr double kDivVelMax         = 10.0;   // 速度模长上限 m/s
+  static constexpr double kDivLidarGapSec    = 0.5;    // 点云中断超过此时长触发计数
+  static constexpr double kDivImuGapSec      = 0.3;    // IMU 中断超过此时长触发计数
+  static constexpr int    kDivConsecFrames   = 1;      // 连续多少帧异常才触发复位
+  static constexpr int    kDivCooldownFrames = 30;     // 复位后冷却帧数，避免反复复位
+
+  int    div_consec_count_   = 0;   // 连续异常帧计数
+  int    div_cooldown_count_ = 0;   // 当前冷却剩余帧数
+  double div_last_pos_trace_ = 0.0; // 占位，保留供后续扩展
+
+  // 每帧更新，供 1s Stats 打印
+  double div_cur_vel_norm_   = 0.0;
+  int    div_cur_consec_     = 0;
 };

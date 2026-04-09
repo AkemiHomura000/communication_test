@@ -102,6 +102,9 @@ void LaserMappingNode::spin_once()
 
   const double t3 = omp_get_wtime();
 
+  // 每帧清零有效点计数，h_model_output 内部是累加（+=），必须在此处重置
+  estimator_.effct_feat_num = 0;
+
   // Kalman iterative update
   if (!estimator_.time_seq.empty())
     runPointByPointUpdate();
@@ -111,6 +114,10 @@ void LaserMappingNode::spin_once()
   // Incremental map update
   if (estimator_.feats_down_size > 4)
     MapIncremental();
+
+  // ── 发散检测（每帧执行，触发则软复位）────────────────────────────
+  if (init_map_ && checkDivergence())
+    return;  // triggerDivergenceReset 已在 checkDivergence 内部调用
 
   const double t5 = omp_get_wtime();
 
@@ -179,6 +186,7 @@ void LaserMappingNode::spin_once()
                   " LiDAR queue: %d  │  avg_dt: %.2fms  max_dt: %.2fms\n"
                   " IMU   queue: %d  │  avg_dt: %.2fms  max_dt: %.2fms\n"
                   " Loop tick:  avg=%.3fms (%.1fHz)  max=%.3fms  (target 500Hz=2.0ms)\n"
+                  " [Div] vel=%.2fm/s(thr%.0f)  consec=%d/%d  cooldown=%d\n"
                   "────────────────────────────────────────",
                   spin_frame_count_,
                   static_cast<int>(feats_undistort_->size()),
@@ -189,7 +197,10 @@ void LaserMappingNode::spin_once()
                   spin_kf_update_ms_  / n,
                   lidar_q, lidar_avg_ms, lidar_max_ms,
                   imu_q,   imu_avg_ms,   imu_max_ms,
-                  loop_avg_ms, loop_actual_hz, loop_max_ms);
+                  loop_avg_ms, loop_actual_hz, loop_max_ms,
+                  div_cur_vel_norm_,   kDivVelMax,
+                  div_cur_consec_,     kDivConsecFrames,
+                  div_cooldown_count_);
 
       // Reset stats
       spin_frame_count_   = 0;
@@ -1127,6 +1138,125 @@ void LaserMappingNode::dumpLioStateToLog()
           estimator_.kf_output.x_.gravity(2));
   fprintf(fp_, "\r\n");
   fflush(fp_);
+}
+
+// =====================================================================
+//  发散检测
+// =====================================================================
+bool LaserMappingNode::checkDivergence()
+{
+  // 冷却期内跳过检测，避免复位后立即再次误判
+  if (div_cooldown_count_ > 0)
+  {
+    --div_cooldown_count_;
+    return false;
+  }
+
+  const auto &x = estimator_.kf_output.x_;
+  const auto &P = estimator_.kf_output.get_P();
+  (void)P;  // 协方差指标已移除，保留引用避免警告
+
+  // ------------------------------------------------------------------
+  // 指标 1：速度模长
+  // ------------------------------------------------------------------
+  const double vel_norm = x.vel.norm();
+
+  // ------------------------------------------------------------------
+  // 指标 2：数据中断时长（直接使用已记录的最大帧间隔）
+  // ------------------------------------------------------------------
+  const double lidar_gap_s = lidar_interval_max_;  // 本统计周期内最大点云间隔
+  const double imu_gap_s   = imu_interval_max_;    // 本统计周期内最大 IMU 间隔
+
+  // ── 每帧存储当前值，供 1s Stats 打印 ─────────────────────────────
+  div_cur_vel_norm_   = vel_norm;
+
+  // ------------------------------------------------------------------
+  // 综合判断
+  // ------------------------------------------------------------------
+  bool any_abnormal = false;
+  std::string reasons;
+
+  if (vel_norm > kDivVelMax)
+  {
+    any_abnormal = true;
+    char buf[80];
+    std::snprintf(buf, sizeof(buf), "vel=%.2fm/s>%.0f ", vel_norm, kDivVelMax);
+    reasons += buf;
+  }
+  if (lidar_gap_s > kDivLidarGapSec)
+  {
+    any_abnormal = true;
+    char buf[80];
+    std::snprintf(buf, sizeof(buf), "lidar_gap=%.3fs>%.2f ", lidar_gap_s, kDivLidarGapSec);
+    reasons += buf;
+  }
+  if (imu_gap_s > kDivImuGapSec)
+  {
+    any_abnormal = true;
+    char buf[80];
+    std::snprintf(buf, sizeof(buf), "imu_gap=%.3fs>%.2f ", imu_gap_s, kDivImuGapSec);
+    reasons += buf;
+  }
+
+  div_cur_consec_ = div_consec_count_;
+
+  if (any_abnormal)
+  {
+    ++div_consec_count_;
+    div_cur_consec_ = div_consec_count_;
+    RCLCPP_WARN(this->get_logger(),
+                "[Div] abnormal #%d/%d: %s",
+                div_consec_count_, kDivConsecFrames, reasons.c_str());
+
+    if (div_consec_count_ >= kDivConsecFrames)
+    {
+      triggerDivergenceReset("consecutive abnormal: " + reasons);
+      return true;
+    }
+  }
+  else
+  {
+    if (div_consec_count_ > 0)
+    {
+      RCLCPP_INFO(this->get_logger(),
+                  "[Div] recovered after %d abnormal frame(s)", div_consec_count_);
+      div_consec_count_ = 0;
+      div_cur_consec_   = 0;
+    }
+  }
+  return false;
+}
+
+void LaserMappingNode::triggerDivergenceReset(const std::string &reason)
+{
+  RCLCPP_ERROR(this->get_logger(),
+               "[Divergence] DIVERGED! Triggering soft reset. Reason: %s", reason.c_str());
+
+  // 同时清零 KF 内部状态和全局 state_out，使 publishOdometry() 广播的 TF 从原点重新出发
+  estimator_.kf_output.x_ = state_output();   // 位置/速度/姿态全部归零
+  estimator_.kf_output.change_P(P_init_output_);
+  state_out = state_output();
+
+  // 清空地图，强制重建
+  estimator_.ivox_.reset(new IVoxType(ivox_options_));
+  init_feats_world_.reset(new PointCloudXYZI());
+  init_map_ = false;
+
+  // 重置 IMU 处理器
+  p_imu->Reset();
+
+  // 回到第一帧逻辑
+  flg_first_scan_ = true;
+  is_first_frame  = true;
+
+  // 清空轨迹，并立即发布一条空的 Path 让 RViz 清屏
+  path_.poses.clear();
+  pub_path_->publish(path_);
+
+  // 重置发散检测计数器，进入冷却期
+  div_consec_count_  = 0;
+  div_last_pos_trace_ = 0.0;
+  div_cooldown_count_ = kDivCooldownFrames;
 }
 
 // =====================================================================
