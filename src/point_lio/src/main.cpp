@@ -31,6 +31,7 @@ int main(int argc, char **argv)
   while (rclcpp::ok() && !g_flg_exit)
   {
     executor.spin_some();
+    node->monitorLoopTick();
     node->spin_once();
     rate.sleep();
   }

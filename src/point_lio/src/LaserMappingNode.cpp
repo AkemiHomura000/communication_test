@@ -1,5 +1,5 @@
 // =====================================================================
-// LaserMappingNode.cpp — LaserMappingNode 类实现
+// LaserMappingNode.cpp — LaserMappingNode class implementation
 // =====================================================================
 
 #include "LaserMappingNode.h"
@@ -17,12 +17,12 @@
 using namespace std;
 
 // =====================================================================
-//  构造 / 析构
+//  Constructor / Destructor
 // =====================================================================
 LaserMappingNode::LaserMappingNode(const rclcpp::NodeOptions &options)
     : Node("laserMapping", options)
 {
-  // 设置全局单例指针，供 esekf 回调桥接使用
+  // Set global singleton pointer for esekf callback bridging
   g_estimator        = &estimator_;
   g_lidar_imu_buffer = &lidar_imu_buf_;
 
@@ -34,7 +34,7 @@ LaserMappingNode::LaserMappingNode(const rclcpp::NodeOptions &options)
   initServiceServer();
   std::memset(estimator_.point_selected_surf, true,
               sizeof(estimator_.point_selected_surf));
-  // 注意：postInit() 必须在 make_shared 完成后由 main() 显式调用
+  // Note: postInit() must be called explicitly by main() after make_shared completes
 }
 
 LaserMappingNode::~LaserMappingNode()
@@ -51,7 +51,7 @@ LaserMappingNode::~LaserMappingNode()
 }
 
 // =====================================================================
-//  postInit — 在 shared_ptr 就绪后调用
+//  postInit — call after shared_ptr is ready
 // =====================================================================
 void LaserMappingNode::postInit()
 {
@@ -62,7 +62,7 @@ void LaserMappingNode::postInit()
 }
 
 // =====================================================================
-//  主循环体
+//  Main loop body
 // =====================================================================
 void LaserMappingNode::spin_once()
 {
@@ -75,40 +75,40 @@ void LaserMappingNode::spin_once()
   if (flg_first_scan_)
     handleFirstScan();
 
-  // 性能计时
+  // performance timing
   const double t0 = omp_get_wtime();
   match_time_ = solve_time_ = propag_time_ = update_time_ = 0.0;
 
-  // 点云下采样
+  // downsampling
   const double t1 = omp_get_wtime();
   downsampleAndSort();
 
-  // IMU 重力初始化
+  // IMU gravity initialization
   if (!p_imu->after_imu_init_)
   {
     if (!tryImuInit())
       return;
   }
 
-  // 初始地图构建
+  // Initial map building
   if (!init_map_)
   {
     if (!buildInitMap())
       return;
   }
 
-  // 预计算点的 cross-matrix
+  // Precompute point cross-matrix
   preparePointLists();
 
   const double t3 = omp_get_wtime();
 
-  // Kalman 迭代更新
+  // Kalman iterative update
   if (!estimator_.time_seq.empty())
     runPointByPointUpdate();
   else
     runImuOnlyUpdate();
 
-  // 地图增量更新
+  // Incremental map update
   if (estimator_.feats_down_size > 4)
     MapIncremental();
 
@@ -122,12 +122,21 @@ void LaserMappingNode::spin_once()
   if (scan_pub_en && scan_body_pub_en)
     publishFrameBody();
 
-  // ── 耗时统计（1 Hz 输出）──────────────────────────────────────────
+  // ── Timing statistics (1 Hz output) ──────────────────────────────────────────
   {
     const double total_ms       = (t5 - t0)  * 1000.0;
     const double downsample_ms  = (t1 - t0)  * 1000.0;
     const double preprocess_ms  = (t3 - t1)  * 1000.0;
     const double kf_update_ms   = (t5 - t3)  * 1000.0;
+
+    // Warn if processing time exceeds lidar frame period (default ~100 ms)
+    const double lidar_period_ms = (lidar_interval_cnt_ > 0)
+        ? (lidar_interval_sum_ / lidar_interval_cnt_ * 1000.0)
+        : 100.0;
+    if (total_ms > lidar_period_ms)
+      RCLCPP_WARN(this->get_logger(),
+                  "[Perf] frame processing %.2f ms exceeds lidar period %.2f ms, real-time violated!",
+                  total_ms, lidar_period_ms);
 
     spin_frame_count_++;
     spin_total_ms_      += total_ms;
@@ -141,31 +150,68 @@ void LaserMappingNode::spin_once()
     if (elapsed_s >= 1.0)
     {
       const double n = static_cast<double>(spin_frame_count_);
+
+      // LiDAR and IMU queue depths
+      const int lidar_q  = static_cast<int>(lidar_imu_buf_.lidar_buffer.size());
+      const int imu_q    = static_cast<int>(lidar_imu_buf_.imu_deque.size());
+
+      // LiDAR frame interval stats
+      const double lidar_avg_ms = (lidar_interval_cnt_ > 0)
+          ? (lidar_interval_sum_ / lidar_interval_cnt_ * 1000.0) : 0.0;
+      const double lidar_max_ms = lidar_interval_max_ * 1000.0;
+
+      // IMU frame interval stats
+      const double imu_avg_ms = (imu_interval_cnt_ > 0)
+          ? (imu_interval_sum_ / imu_interval_cnt_ * 1000.0) : 0.0;
+      const double imu_max_ms = imu_interval_max_ * 1000.0;
+
+      // Main loop tick stats
+      const double loop_avg_ms = (main_loop_tick_count_ > 0)
+          ? (main_loop_dt_sum_ms_ / main_loop_tick_count_) : 0.0;
+      const double loop_max_ms = main_loop_dt_max_ms_;
+      const double loop_actual_hz = (loop_avg_ms > 0.0) ? (1000.0 / loop_avg_ms) : 0.0;
+
       RCLCPP_INFO(this->get_logger(),
-                  "[spin_once | avg over %d frames] "
-                  "total: %.2f ms  downsample: %.2f ms  "
-                  "preprocess: %.2f ms  kf_update: %.2f ms",
+                  "\n"
+                  "─────────────── 1s Stats ───────────────\n"
+                  " Frames: %d  │  Raw pts: %d  │  Downsampled: %d pts\n"
+                  " Time(avg): total=%.2fms  ds=%.2fms  pre=%.2fms  kf=%.2fms\n"
+                  " LiDAR queue: %d  │  avg_dt: %.2fms  max_dt: %.2fms\n"
+                  " IMU   queue: %d  │  avg_dt: %.2fms  max_dt: %.2fms\n"
+                  " Loop tick:  avg=%.3fms (%.1fHz)  max=%.3fms  (target 500Hz=2.0ms)\n"
+                  "────────────────────────────────────────",
                   spin_frame_count_,
-                  spin_total_ms_      / n,
+                  static_cast<int>(feats_undistort_->size()),
+                  estimator_.feats_down_size,
+                  spin_total_ms_ / n,
                   spin_downsample_ms_ / n,
                   spin_preprocess_ms_ / n,
-                  spin_kf_update_ms_  / n);
+                  spin_kf_update_ms_  / n,
+                  lidar_q, lidar_avg_ms, lidar_max_ms,
+                  imu_q,   imu_avg_ms,   imu_max_ms,
+                  loop_avg_ms, loop_actual_hz, loop_max_ms);
+
+      // Reset stats
       spin_frame_count_   = 0;
       spin_total_ms_      = 0.0;
       spin_downsample_ms_ = 0.0;
       spin_preprocess_ms_ = 0.0;
       spin_kf_update_ms_  = 0.0;
       spin_last_log_time_ = now;
+
+      lidar_interval_sum_ = 0.0; lidar_interval_max_ = 0.0; lidar_interval_cnt_ = 0;
+      imu_interval_sum_   = 0.0; imu_interval_max_   = 0.0; imu_interval_cnt_   = 0;
+      main_loop_dt_sum_ms_ = 0.0; main_loop_dt_max_ms_ = 0.0; main_loop_tick_count_ = 0;
     }
   }
 
-  // 调试统计（详细文件日志）
+  // Debug stats (detailed file log)
   if (runtime_pos_log)
     logRuntimeStats(t0, t1, t3, t5);
 }
 
 // =====================================================================
-//  初始化
+//  Initialization
 // =====================================================================
 void LaserMappingNode::initParameters()
 {
@@ -189,7 +235,7 @@ void LaserMappingNode::initParameters()
   p_imu->lidar_type = p_pre->lidar_type = lidar_type;
   p_imu->imu_en     = imu_en;
 
-  // 根据配置频率计算里程计发布最小间隔（0 频率 = 每次都发布）
+  // Compute odometry publish minimum interval based on configured frequency (0 = publish every time)
   odom_pub_interval_ = (odom_pub_freq > 0.0) ? (1.0 / odom_pub_freq) : 0.0;
   RCLCPP_INFO(this->get_logger(), "odom_pub_freq: %.1f Hz (interval: %.4f s)",
               odom_pub_freq, odom_pub_interval_);
@@ -214,24 +260,70 @@ void LaserMappingNode::initLogFiles()
 
 void LaserMappingNode::initSubscribers()
 {
+  // Custom QoS: BEST_EFFORT (match sensor publishers), large depth to absorb scheduling jitter
+  auto lidar_qos = rclcpp::QoS(rclcpp::KeepLast(20)).best_effort().durability_volatile();
+  auto imu_qos   = rclcpp::QoS(rclcpp::KeepLast(200)).best_effort().durability_volatile();
+
   if (p_pre->lidar_type == AVIA)
   {
     sub_pcl_livox_ = this->create_subscription<livox_ros_driver2::msg::CustomMsg>(
-        lid_topic, rclcpp::SensorDataQoS(),
+        lid_topic, lidar_qos,
         [this](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg)
-        { lidar_imu_buf_.livox_pcl_cbk(msg); });
+        {
+          lidar_imu_buf_.livox_pcl_cbk(msg);
+          const double t = rclcpp::Time(msg->header.stamp).seconds();
+          if (last_lidar_stamp_ > 0.0)
+          {
+            const double dt = t - last_lidar_stamp_;
+            lidar_interval_sum_ += dt;
+            lidar_interval_cnt_++;
+            if (dt > lidar_interval_max_) lidar_interval_max_ = dt;
+            if (dt > 0.15)
+              RCLCPP_WARN(this->get_logger(),
+                          "[LiDAR] large frame gap: %.3f s (expected ~0.1s)", dt);
+          }
+          last_lidar_stamp_ = t;
+        });
   }
   else
   {
     sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        lid_topic, rclcpp::SensorDataQoS(),
+        lid_topic, lidar_qos,
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
-        { lidar_imu_buf_.standard_pcl_cbk(msg); });
+        {
+          lidar_imu_buf_.standard_pcl_cbk(msg);
+          const double t = rclcpp::Time(msg->header.stamp).seconds();
+          if (last_lidar_stamp_ > 0.0)
+          {
+            const double dt = t - last_lidar_stamp_;
+            lidar_interval_sum_ += dt;
+            lidar_interval_cnt_++;
+            if (dt > lidar_interval_max_) lidar_interval_max_ = dt;
+            if (dt > 0.15)
+              RCLCPP_WARN(this->get_logger(),
+                          "[LiDAR] large frame gap: %.3f s (expected ~0.1s)", dt);
+          }
+          last_lidar_stamp_ = t;
+        });
   }
   sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      imu_topic, rclcpp::SensorDataQoS(),
+      imu_topic, imu_qos,
       [this](const sensor_msgs::msg::Imu::ConstSharedPtr &msg)
-      { lidar_imu_buf_.imu_cbk(msg); });
+      {
+        lidar_imu_buf_.imu_cbk(msg);
+        const double t = rclcpp::Time(msg->header.stamp).seconds();
+        if (last_imu_stamp_ > 0.0)
+        {
+          const double dt = t - last_imu_stamp_;
+          imu_interval_sum_ += dt;
+          imu_interval_cnt_++;
+          if (dt > imu_interval_max_) imu_interval_max_ = dt;
+          if (dt > 0.02)   // IMU typically 200 Hz, normal interval ~5 ms
+            RCLCPP_WARN(this->get_logger(),
+                        "[IMU] large frame gap: %.4f s (expected ~0.005s)", dt);
+        }
+        last_imu_stamp_ = t;
+      });
 }
 
 void LaserMappingNode::initPublishers()
@@ -246,7 +338,7 @@ void LaserMappingNode::initPublishers()
       this->create_publisher<nav_msgs::msg::Odometry>("/Odometry", rclcpp::SensorDataQoS());
   pub_path_ =
       this->create_publisher<nav_msgs::msg::Path>("/path", 1000);
-  // tf_broadcaster_ / tf_buffer_ / tf_listener_ 在 postInit() 中初始化
+  // tf_broadcaster_ / tf_buffer_ / tf_listener_ are initialized in postInit()
 }
 
 void LaserMappingNode::initServiceServer()
@@ -264,7 +356,7 @@ void LaserMappingNode::initServiceServer()
 }
 
 // =====================================================================
-//  重置处理
+//  Reset handling
 // =====================================================================
 void LaserMappingNode::handleReset()
 {
@@ -281,7 +373,7 @@ void LaserMappingNode::handleReset()
 }
 
 // =====================================================================
-//  第一帧处理
+//  First scan handling
 // =====================================================================
 void LaserMappingNode::handleFirstScan()
 {
@@ -320,7 +412,7 @@ void LaserMappingNode::handleFirstScan()
 }
 
 // =====================================================================
-//  点云下采样与排序
+//  Pointcloud downsampling and sorting
 // =====================================================================
 void LaserMappingNode::downsampleAndSort()
 {
@@ -341,7 +433,7 @@ void LaserMappingNode::downsampleAndSort()
 }
 
 // =====================================================================
-//  IMU 重力方向初始化
+//  IMU gravity direction initialization
 // =====================================================================
 bool LaserMappingNode::tryImuInit()
 {
@@ -367,7 +459,7 @@ bool LaserMappingNode::tryImuInit()
 }
 
 // =====================================================================
-//  初始地图构建
+//  Initial map building
 // =====================================================================
 bool LaserMappingNode::buildInitMap()
 {
@@ -387,11 +479,11 @@ bool LaserMappingNode::buildInitMap()
   RCLCPP_INFO(this->get_logger(), "initial map size: %zu", init_feats_world_->size());
   init_feats_world_.reset(new PointCloudXYZI());
   init_map_ = true;
-  return false; // 本帧用于建图，跳过后续 KF 更新
+  return false; // frame used for map building, skip subsequent KF update
 }
 
 // =====================================================================
-//  预计算 cross-matrix 列表
+//  Precompute cross-matrix list
 // =====================================================================
 void LaserMappingNode::preparePointLists()
 {
@@ -418,7 +510,7 @@ void LaserMappingNode::preparePointLists()
 }
 
 // =====================================================================
-//  逐点 IMU 传播 + Kalman 更新
+//  Point-by-point IMU propagation + Kalman update
 // =====================================================================
 void LaserMappingNode::runPointByPointUpdate()
 {
@@ -462,7 +554,7 @@ void LaserMappingNode::runPointByPointUpdate()
 
     double solve_start = omp_get_wtime();
 
-    // 频率控制：按预设 odom_pub_freq 在逐点更新中发布里程计
+    // Rate control: publish odometry at configured odom_pub_freq during point-by-point update
     if (odom_pub_interval_ <= 0.0 ||
         (time_current - last_odom_pub_time_) >= odom_pub_interval_)
     {
@@ -486,7 +578,7 @@ void LaserMappingNode::runPointByPointUpdate()
 }
 
 // =====================================================================
-//  无激光点帧：仅用 IMU 推进状态
+//  No laser points: propagate state with IMU only
 // =====================================================================
 void LaserMappingNode::runImuOnlyUpdate()
 {
@@ -544,7 +636,7 @@ void LaserMappingNode::runImuOnlyUpdate()
 }
 
 // =====================================================================
-//  对齐第一个激光点的 IMU 时间
+//  Align IMU time to the first laser point
 // =====================================================================
 void LaserMappingNode::alignImuToFirstPoint(bool &imu_upda_cov)
 {
@@ -572,7 +664,7 @@ void LaserMappingNode::alignImuToFirstPoint(bool &imu_upda_cov)
 }
 
 // =====================================================================
-//  处理先于当前激光点时刻的 IMU 数据
+//  Process IMU data prior to the current laser point timestamp
 // =====================================================================
 void LaserMappingNode::processImuBeforePoint(bool &imu_upda_cov)
 {
@@ -631,7 +723,7 @@ void LaserMappingNode::processImuBeforePoint(bool &imu_upda_cov)
 }
 
 // =====================================================================
-//  状态传播到当前激光点时刻
+//  Propagate state to the current laser point timestamp
 // =====================================================================
 void LaserMappingNode::propagateState()
 {
@@ -653,7 +745,7 @@ void LaserMappingNode::propagateState()
 }
 
 // =====================================================================
-//  地图增量更新
+//  Incremental map update
 // =====================================================================
 void LaserMappingNode::MapIncremental()
 {
@@ -695,7 +787,7 @@ void LaserMappingNode::MapIncremental()
 }
 
 // =====================================================================
-//  发布：初始化地图点云
+//  Publish: initial map pointcloud
 // =====================================================================
 void LaserMappingNode::publishInitMap()
 {
@@ -707,7 +799,7 @@ void LaserMappingNode::publishInitMap()
 }
 
 // =====================================================================
-//  发布：世界坐标系点云
+//  Publish: world-frame pointcloud
 // =====================================================================
 void LaserMappingNode::publishFrameWorld()
 {
@@ -730,7 +822,7 @@ void LaserMappingNode::publishFrameWorld()
 }
 
 // =====================================================================
-//  发布：body 坐标系点云
+//  Publish: body-frame pointcloud
 // =====================================================================
 void LaserMappingNode::publishFrameBody()
 {
@@ -750,7 +842,7 @@ void LaserMappingNode::publishOdometry()
   odom_.header.frame_id = "lidar_odom";
   odom_.header.stamp    = get_ros_time(time_current);
 
-  // ---- 1. 获取 livox_frame -> base_link 的固定外参（只查询一次）----
+  // ---- 1. Look up fixed livox_frame -> base_link extrinsic (only once) ----
   if (!tf_livox_to_base_acquired_)
   {
     try
@@ -763,7 +855,7 @@ void LaserMappingNode::publishOdometry()
     {
       RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                             "Failed to lookup livox_frame -> base_link: %s", ex.what());
-      // 外参未就绪时降级：发布 livox_frame 的量
+      // Fallback when extrinsic not yet available: publish livox_frame quantities
       odom_.child_frame_id = "livox_frame";
       setPoseStamp(odom_.pose.pose);
       setTwist(odom_.twist.twist);
@@ -772,7 +864,7 @@ void LaserMappingNode::publishOdometry()
     }
   }
 
-  // ---- 2. 计算 T_odom_base = T_odom_livox * T_livox_base ----
+  // ---- 2. Compute T_odom_base = T_odom_livox * T_livox_base ----
   tf2::Transform T_odom_livox, T_livox_base;
   {
     geometry_msgs::msg::Pose livox_pose;
@@ -782,29 +874,29 @@ void LaserMappingNode::publishOdometry()
   tf2::fromMsg(tf_livox_to_base_.transform, T_livox_base);
   tf2::Transform T_odom_base = T_odom_livox * T_livox_base;
 
-  // ---- 3. 填充 Pose（base_link 在 odom 系下的位姿）----
+  // ---- 3. Fill Pose (base_link pose in odom frame) ----
   odom_.child_frame_id = "base_link";
   tf2::toMsg(T_odom_base, odom_.pose.pose);
 
-  // ---- 4. 填充 Twist（base_link 在 odom 系下的速度） ----
-  // 线速度：v_base = v_livox + ω_odom × r_livox_to_base_in_odom
-  //   其中 r_livox_to_base_in_odom = R_odom_livox * t_livox_to_base
+  // ---- 4. Fill Twist (base_link velocity in odom frame) ----
+  // linear vel: v_base = v_livox + ω_odom × r_livox_to_base_in_odom
+  //   where r_livox_to_base_in_odom = R_odom_livox * t_livox_to_base
   {
-    // R_odom_livox（世界系下 livox 的姿态）
+    // R_odom_livox (livox orientation in world frame)
     Eigen::Quaterniond q_odom_livox(estimator_.kf_output.x_.rot);
     Eigen::Matrix3d R_odom_livox = q_odom_livox.toRotationMatrix();
 
-    // t_livox_to_base（livox 系下，livox 原点到 base_link 原点的向量）
+    // t_livox_to_base (vector from livox origin to base_link origin, in livox frame)
     const auto &t = tf_livox_to_base_.transform.translation;
     Eigen::Vector3d t_livox_base(t.x, t.y, t.z);
 
-    // r 在 odom 系中的表示
+    // r expressed in odom frame
     Eigen::Vector3d r_odom = R_odom_livox * t_livox_base;
 
-    // ω 在 odom 系下（已由 setTwist 转换，但这里直接重算）
+    // ω in odom frame (recomputed directly here)
     V3D omg_world = R_odom_livox * estimator_.kf_output.x_.omg;
 
-    // v_livox 在 odom 系下
+    // v_livox in odom frame
     V3D v_livox = estimator_.kf_output.x_.vel;
 
     // v_base = v_livox + ω × r
@@ -814,7 +906,7 @@ void LaserMappingNode::publishOdometry()
     odom_.twist.twist.linear.y  = v_base(1);
     odom_.twist.twist.linear.z  = v_base(2);
 
-    // 角速度：固连刚体角速度相同，统一表示在 odom 系
+    // angular velocity: same for rigid body, expressed in odom frame
     odom_.twist.twist.angular.x = omg_world(0);
     odom_.twist.twist.angular.y = omg_world(1);
     odom_.twist.twist.angular.z = omg_world(2);
@@ -1010,4 +1102,28 @@ void LaserMappingNode::saveMap()
     writer.writeBinary(path, *pcl_wait_save_);
     RCLCPP_INFO(this->get_logger(), "pcd saved to %s", path.c_str());
   }
+}
+
+// =====================================================================
+//  主循环节拍监控（由 main() 每次 while 循环调用）
+// =====================================================================
+void LaserMappingNode::monitorLoopTick()
+{
+  const auto now = std::chrono::steady_clock::now();
+  const double dt_ms =
+      std::chrono::duration<double, std::milli>(now - main_loop_last_tp_).count();
+  main_loop_last_tp_ = now;
+
+  if (dt_ms <= 0.0 || dt_ms > 100.0)   // 跳过第一次及异常值
+    return;
+
+  main_loop_dt_sum_ms_ += dt_ms;
+  main_loop_tick_count_++;
+  if (dt_ms > main_loop_dt_max_ms_)
+    main_loop_dt_max_ms_ = dt_ms;
+
+  // 500 Hz 目标周期为 2 ms，超过 4 ms（2 倍）报 warning
+  if (dt_ms > 50.0)
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 200,
+                         "[MainLoop] tick overrun: %.3f ms (target 2.0 ms / 500 Hz)", dt_ms);
 }

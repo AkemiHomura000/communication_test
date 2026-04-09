@@ -39,6 +39,9 @@ open_terminal "tf21" "ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 ma
 open_terminal "livox_drvier" "ros2 launch livox_ros_driver2 msg_MID360_launch.py"
 sleep 1
 open_terminal "point_lio" "ros2 launch point_lio mapping_mid360.launch.py"
+# Raise PointLIO scheduling priority after it starts (avoids setcap/LD_LIBRARY_PATH issue)
+# Use pgrep -f to match full command line (process name is truncated to 15 chars by Linux)
+sleep 2 && sudo renice -n -10 -p $(pgrep -f pointlio_mapping) && echo "[nav_start] PointLIO nice set to -10" &
 sleep 1
 open_terminal "decision" "ros2 launch sp_decision decision.launch.py"
 sleep 1

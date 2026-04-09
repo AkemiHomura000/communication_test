@@ -43,6 +43,9 @@ public:
   // 主循环体，由 main() 以 500 Hz 驱动
   void spin_once();
 
+  // 主循环节拍监控，由 main() 每次循环调用
+  void monitorLoopTick();
+
 private:
   // ==================================================================
   //  初始化
@@ -104,6 +107,10 @@ private:
   void logRuntimeStats(double t0, double t1, double t3, double t5);
   void logPbpState();
   void dumpLioStateToLog();
+
+  // ==================================================================
+  //  监控辅助（已移至 public，此处保留注释占位）
+  // ==================================================================
 
   // ==================================================================
   //  退出清理
@@ -182,4 +189,22 @@ private:
   double spin_downsample_ms_ = 0.0;
   double spin_preprocess_ms_ = 0.0;
   double spin_kf_update_ms_  = 0.0;
+
+  // ── 500 Hz 主循环节拍统计 ─────────────────────────────────────────
+  std::chrono::steady_clock::time_point main_loop_last_tp_ {std::chrono::steady_clock::now()};
+  double main_loop_dt_sum_ms_  = 0.0;
+  double main_loop_dt_max_ms_  = 0.0;
+  int    main_loop_tick_count_ = 0;
+
+  // ── 点云帧间隔监控 ────────────────────────────────────────────────
+  double last_lidar_stamp_   = -1.0;   // 上一帧点云时间戳（秒）
+  double lidar_interval_sum_ = 0.0;
+  double lidar_interval_max_ = 0.0;
+  int    lidar_interval_cnt_ = 0;
+
+  // ── IMU 帧间隔监控 ────────────────────────────────────────────────
+  double last_imu_stamp_   = -1.0;
+  double imu_interval_sum_ = 0.0;
+  double imu_interval_max_ = 0.0;
+  int    imu_interval_cnt_ = 0;
 };
