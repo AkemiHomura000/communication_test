@@ -23,7 +23,7 @@ class OdomOffsetEstimator(Node):
         super().__init__('odom_offset_estimator')
 
         # ---- parameters ----
-        self.declare_parameter('in_topic', '/Odometry')
+        self.declare_parameter('in_topic', '/glim_rosnode/odom')
         self.declare_parameter('window_sec', 4.0)         # 平均时间窗（秒）
         self.declare_parameter('min_abs_omega', 1e-3)     # |wz|小于此值不用于估计
         self.declare_parameter('min_samples', 10)         # 窗内样本不足不发布

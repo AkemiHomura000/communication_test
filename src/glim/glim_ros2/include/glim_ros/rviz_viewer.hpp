@@ -92,6 +92,9 @@ private:
   std::mutex trajectory_mutex;
   std::unique_ptr<TrajectoryManager> trajectory;
 
+  std::mutex imu_mutex;
+  Eigen::Vector3d latest_angular_vel_imu;  // Latest IMU angular velocity in IMU body frame
+
   std::vector<gtsam_points::PointCloud::ConstPtr> submaps;
 
   std::mutex invoke_queue_mutex;

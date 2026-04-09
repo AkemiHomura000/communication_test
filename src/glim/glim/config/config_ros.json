@@ -57,7 +57,7 @@
     "imu_frame_id": "livox_frame", // Auto-detect if blank
     "lidar_frame_id": "livox_frame", // Auto-detect if blank
     "base_frame_id": "base_link", // If blank, IMU frame ID is used
-    "odom_frame_id": "odom",
+    "odom_frame_id": "lidar_odom",
     "map_frame_id": "map",
     "publish_imu2lidar": false,
     "tf_time_offset": 1e-6,

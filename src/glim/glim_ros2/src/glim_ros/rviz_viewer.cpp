@@ -15,7 +15,7 @@
 
 namespace glim {
 
-RvizViewer::RvizViewer() : logger(create_module_logger("rviz")) {
+RvizViewer::RvizViewer() : logger(create_module_logger("rviz")), latest_angular_vel_imu(Eigen::Vector3d::Zero()) {
   const Config config(GlobalConfig::get_config_path("config_ros"));
 
   imu_frame_id = config.param<std::string>("glim_ros", "imu_frame_id", "");
@@ -104,6 +104,10 @@ std::vector<GenericTopicSubscription::Ptr> RvizViewer::create_subscriptions(rclc
 
 void RvizViewer::set_callbacks() {
   using std::placeholders::_1;
+  OdometryEstimationCallbacks::on_insert_imu.add([this](const double stamp, const Eigen::Vector3d& linear_acc, const Eigen::Vector3d& angular_vel) {
+    std::lock_guard<std::mutex> lock(imu_mutex);
+    latest_angular_vel_imu = angular_vel;
+  });
   OdometryEstimationCallbacks::on_new_frame.add([this](const EstimationFrame::ConstPtr& new_frame) { odometry_new_frame(new_frame, false); });
   OdometryEstimationCallbacks::on_update_new_frame.add([this](const EstimationFrame::ConstPtr& new_frame) { odometry_new_frame(new_frame, true); });
   GlobalMappingCallbacks::on_update_submaps.add(std::bind(&RvizViewer::globalmap_on_update_submaps, this, _1));
@@ -162,19 +166,15 @@ void RvizViewer::odometry_new_frame(const EstimationFrame::ConstPtr& new_frame, 
     T_imubegin_imuend = T_odom_imubegin.inverse() * T_odom_imuend;
     imu_end_time = imu_end(0);
 
-    // Compute angular velocity in odom frame using left-difference: Log(R1 * R0^T) / dt
-    if (new_frame->imu_rate_trajectory.cols() >= 2) {
-      const int last_col = new_frame->imu_rate_trajectory.cols() - 1;
-      const Eigen::Matrix<double, 8, 1> col_prev = new_frame->imu_rate_trajectory.col(last_col - 1);
-      const Eigen::Matrix<double, 8, 1> col_last = new_frame->imu_rate_trajectory.col(last_col);
-      const double dt = col_last(0) - col_prev(0);
-      if (dt > 1e-9) {
-        const Eigen::Quaterniond q_prev(col_prev(7), col_prev(4), col_prev(5), col_prev(6));
-        const Eigen::Quaterniond q_last(col_last(7), col_last(4), col_last(5), col_last(6));
-        // Left-difference: R_delta in odom frame = R1 * R0^T
-        const Eigen::AngleAxisd delta_rot(q_last * q_prev.inverse());
-        omega_odom = delta_rot.axis() * delta_rot.angle() / dt;
-      }
+    // Compute angular velocity using first-to-last differentiation over the full scan window
+    // dt spans the entire scan (~50-100ms), greatly reducing noise amplification vs adjacent-frame diff (~5ms)
+    const double dt = imu_end(0) - imu_begin(0);
+    if (dt > 1e-6) {
+      const Eigen::Quaterniond q_begin(imu_begin(7), imu_begin(4), imu_begin(5), imu_begin(6));
+      const Eigen::Quaterniond q_end(imu_end(7), imu_end(4), imu_end(5), imu_end(6));
+      // Left-difference in odom frame: R_delta = R_end * R_begin^T
+      const Eigen::AngleAxisd delta_rot(q_end * q_begin.inverse());
+      omega_odom = delta_rot.axis() * delta_rot.angle() / dt;
     }
   }
 

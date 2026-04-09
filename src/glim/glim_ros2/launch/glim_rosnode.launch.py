@@ -34,6 +34,11 @@ def generate_launch_description():
             'dump_path': LaunchConfiguration('dump_path'),
             'dump_on_unload': LaunchConfiguration('dump_on_unload'),
         }],
+        remappings=[
+            # 将 glim 订阅的话题重映射到实际发布的话题
+            # 格式: ('glim内部话题名', '实际话题名')
+            ('~/odom', '/Odometry'),          # 将 /glim_rosnode/odom 重映射到 /odom
+        ],
     )
 
     rviz_arg = DeclareLaunchArgument(
