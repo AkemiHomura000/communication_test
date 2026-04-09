@@ -101,9 +101,18 @@ ament_target_dependencies(pointlio_mapping
 target_link_libraries(pointlio_mapping ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
 target_include_directories(pointlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
 
-# Install the executable
+# ── topic_gate_node (test utility) ──────────────────────────────────────────
+add_executable(topic_gate_node test/topic_gate_node.cpp)
+ament_target_dependencies(topic_gate_node
+  rclcpp
+  sensor_msgs
+  livox_ros_driver2
+)
+
+# Install the executables
 install(TARGETS
         pointlio_mapping
+        topic_gate_node
         DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -608,6 +608,25 @@ void LaserMappingNode::runImuOnlyUpdate()
 
     time_current = get_time_sec(lidar_imu_buf_.imu_next.header.stamp);
 
+    double dt = time_current - time_predict_last_const;
+
+    // Guard against stale-IMU long-integration (same threshold as processImuBeforePoint)
+    static constexpr double kMaxImuDtImuOnly = 0.025;
+    if (dt > kMaxImuDtImuOnly)
+    {
+      RCLCPP_WARN(rclcpp::get_logger("LaserMappingNode"),
+                  "[IMU-only] gap %.3f s > %.3f s threshold, skip stale predict, resync time",
+                  dt, kMaxImuDtImuOnly);
+      time_predict_last_const = time_current;
+      time_update_last        = time_current;
+      lidar_imu_buf_.imu_deque.pop_front();
+      if (lidar_imu_buf_.imu_deque.empty())
+        break;
+      lidar_imu_buf_.imu_last = lidar_imu_buf_.imu_next;
+      lidar_imu_buf_.imu_next = *(lidar_imu_buf_.imu_deque.front());
+      continue;
+    }
+
     double dt_cov = time_current - time_update_last;
     if (dt_cov > 0.0)
     {
@@ -615,7 +634,6 @@ void LaserMappingNode::runImuOnlyUpdate()
       time_update_last = time_current;
     }
 
-    double dt = time_current - time_predict_last_const;
     estimator_.kf_output.predict(dt, Q_output_, estimator_.input_in, true, false);
     time_predict_last_const = time_current;
 
@@ -698,6 +716,27 @@ void LaserMappingNode::processImuBeforePoint(bool &imu_upda_cov)
                               lidar_imu_buf_.imu_next.linear_acceleration.z;
 
     double dt = get_time_sec(lidar_imu_buf_.imu_next.header.stamp) - time_predict_last_const;
+
+    // Guard against stale-IMU long-integration: if the gap since the last IMU
+    // prediction exceeds 5× the nominal IMU period (~5×5ms = 25ms), the IMU
+    // was likely absent for a while.  Skip the predict() for this oversize dt
+    // and simply resync the time reference so the next IMU step is normal-sized.
+    static constexpr double kMaxImuDt = 0.05; // 50 ms ≈ 5× 200 Hz period
+    if (dt > kMaxImuDt)
+    {
+      RCLCPP_WARN(rclcpp::get_logger("LaserMappingNode"),
+                  "[IMU] gap %.3f s > %.3f s threshold, skip stale predict, resync time",
+                  dt, kMaxImuDt);
+      time_predict_last_const = get_time_sec(lidar_imu_buf_.imu_next.header.stamp);
+      time_update_last        = get_time_sec(lidar_imu_buf_.imu_next.header.stamp);
+      lidar_imu_buf_.imu_deque.pop_front();
+      if (lidar_imu_buf_.imu_deque.empty())
+        break;
+      lidar_imu_buf_.imu_last = lidar_imu_buf_.imu_next;
+      lidar_imu_buf_.imu_next = *(lidar_imu_buf_.imu_deque.front());
+      continue;
+    }
+
     estimator_.kf_output.predict(dt, Q_output_, estimator_.input_in, true, false);
     time_predict_last_const = get_time_sec(lidar_imu_buf_.imu_next.header.stamp);
 

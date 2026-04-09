@@ -17,8 +17,8 @@ lidar_merger:
     # ── Topic names ────────────────────────────────────────────────────────
     # livox_ros_driver2 typically names topics by LiDAR IP address.
     # Adjust to match your driver configuration.
-    primary_topic:   "/livox/lidar_192_168_1_183"
-    secondary_topic: "/livox/lidar_192_168_1_133"
+    primary_topic:   "/livox/lidar_192_168_1_183_relay"
+    secondary_topic: "/livox/lidar_192_168_1_133_relay"
     output_topic:    "/livox/lidar_merged"
 
     # ── Extrinsic parameters ───────────────────────────────────────────────
