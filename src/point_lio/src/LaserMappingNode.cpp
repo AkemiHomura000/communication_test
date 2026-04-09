@@ -748,16 +748,9 @@ void LaserMappingNode::publishFrameBody()
 void LaserMappingNode::publishOdometry()
 {
   odom_.header.frame_id = "lidar_odom";
-  odom_.child_frame_id  = "livox_frame";
   odom_.header.stamp    = get_ros_time(time_current);
-  setPoseStamp(odom_.pose.pose);
-  setTwist(odom_.twist.twist);
-  pub_odom_->publish(odom_);
-  publishTfToBaseLink();
-}
 
-void LaserMappingNode::publishTfToBaseLink()
-{
+  // ---- 1. 获取 livox_frame -> base_link 的固定外参（只查询一次）----
   if (!tf_livox_to_base_acquired_)
   {
     try
@@ -770,19 +763,85 @@ void LaserMappingNode::publishTfToBaseLink()
     {
       RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                             "Failed to lookup livox_frame -> base_link: %s", ex.what());
+      // 外参未就绪时降级：发布 livox_frame 的量
+      odom_.child_frame_id = "livox_frame";
+      setPoseStamp(odom_.pose.pose);
+      setTwist(odom_.twist.twist);
+      pub_odom_->publish(odom_);
       return;
     }
   }
+
+  // ---- 2. 计算 T_odom_base = T_odom_livox * T_livox_base ----
+  tf2::Transform T_odom_livox, T_livox_base;
+  {
+    geometry_msgs::msg::Pose livox_pose;
+    setPoseStamp(livox_pose);
+    tf2::fromMsg(livox_pose, T_odom_livox);
+  }
+  tf2::fromMsg(tf_livox_to_base_.transform, T_livox_base);
+  tf2::Transform T_odom_base = T_odom_livox * T_livox_base;
+
+  // ---- 3. 填充 Pose（base_link 在 odom 系下的位姿）----
+  odom_.child_frame_id = "base_link";
+  tf2::toMsg(T_odom_base, odom_.pose.pose);
+
+  // ---- 4. 填充 Twist（base_link 在 odom 系下的速度） ----
+  // 线速度：v_base = v_livox + ω_odom × r_livox_to_base_in_odom
+  //   其中 r_livox_to_base_in_odom = R_odom_livox * t_livox_to_base
+  {
+    // R_odom_livox（世界系下 livox 的姿态）
+    Eigen::Quaterniond q_odom_livox(estimator_.kf_output.x_.rot);
+    Eigen::Matrix3d R_odom_livox = q_odom_livox.toRotationMatrix();
+
+    // t_livox_to_base（livox 系下，livox 原点到 base_link 原点的向量）
+    const auto &t = tf_livox_to_base_.transform.translation;
+    Eigen::Vector3d t_livox_base(t.x, t.y, t.z);
+
+    // r 在 odom 系中的表示
+    Eigen::Vector3d r_odom = R_odom_livox * t_livox_base;
+
+    // ω 在 odom 系下（已由 setTwist 转换，但这里直接重算）
+    V3D omg_world = R_odom_livox * estimator_.kf_output.x_.omg;
+
+    // v_livox 在 odom 系下
+    V3D v_livox = estimator_.kf_output.x_.vel;
+
+    // v_base = v_livox + ω × r
+    Eigen::Vector3d v_base = v_livox + omg_world.cross(r_odom);
+
+    odom_.twist.twist.linear.x  = v_base(0);
+    odom_.twist.twist.linear.y  = v_base(1);
+    odom_.twist.twist.linear.z  = v_base(2);
+
+    // 角速度：固连刚体角速度相同，统一表示在 odom 系
+    odom_.twist.twist.angular.x = omg_world(0);
+    odom_.twist.twist.angular.y = omg_world(1);
+    odom_.twist.twist.angular.z = omg_world(2);
+  }
+
+  pub_odom_->publish(odom_);
+  publishTfToBaseLink();
+}
+
+void LaserMappingNode::publishTfToBaseLink()
+{
+  if (!tf_livox_to_base_acquired_)
+    return;  // 外参未就绪，TF 暂不广播
+
+  tf2::Transform T_odom_livox, T_livox_base;
+  {
+    geometry_msgs::msg::Pose livox_pose;
+    setPoseStamp(livox_pose);
+    tf2::fromMsg(livox_pose, T_odom_livox);
+  }
+  tf2::fromMsg(tf_livox_to_base_.transform, T_livox_base);
 
   geometry_msgs::msg::TransformStamped ts;
   ts.header.stamp    = odom_.header.stamp;
   ts.header.frame_id = "lidar_odom";
   ts.child_frame_id  = "base_link";
-
-  tf2::Transform T_odom_livox, T_livox_base;
-  tf2::fromMsg(odom_.pose.pose, T_odom_livox);
-  tf2::fromMsg(tf_livox_to_base_.transform, T_livox_base);
-  ts.transform = tf2::toMsg(T_odom_livox * T_livox_base);
+  ts.transform       = tf2::toMsg(T_odom_livox * T_livox_base);
   tf_broadcaster_->sendTransform(ts);
 }
 
@@ -821,9 +880,12 @@ void LaserMappingNode::setTwist(T &out) const
   out.linear.x  = estimator_.kf_output.x_.vel(0);
   out.linear.y  = estimator_.kf_output.x_.vel(1);
   out.linear.z  = estimator_.kf_output.x_.vel(2);
-  out.angular.x = estimator_.kf_output.x_.omg(0);
-  out.angular.y = estimator_.kf_output.x_.omg(1);
-  out.angular.z = estimator_.kf_output.x_.omg(2);
+  // omg 是 IMU body 系角速度，旋转到 lidar_odom 世界系：ω_world = R * ω_body
+  Eigen::Quaterniond q_rot(estimator_.kf_output.x_.rot);
+  V3D omg_world = q_rot.toRotationMatrix() * estimator_.kf_output.x_.omg;
+  out.angular.x = omg_world(0);
+  out.angular.y = omg_world(1);
+  out.angular.z = omg_world(2);
 }
 
 // 显式实例化，避免链接错误

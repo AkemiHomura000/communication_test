@@ -5,6 +5,7 @@ from typing import Deque, Tuple, Optional
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Vector3Stamped
 from std_msgs.msg import Float64
@@ -23,7 +24,7 @@ class OdomOffsetEstimator(Node):
         super().__init__('odom_offset_estimator')
 
         # ---- parameters ----
-        self.declare_parameter('in_topic', '/glim_rosnode/odom')
+        self.declare_parameter('in_topic', '/Odometry')
         self.declare_parameter('window_sec', 4.0)         # 平均时间窗（秒）
         self.declare_parameter('min_abs_omega', 1e-3)     # |wz|小于此值不用于估计
         self.declare_parameter('min_samples', 10)         # 窗内样本不足不发布
@@ -42,7 +43,12 @@ class OdomOffsetEstimator(Node):
         # buffer: (t_sec, x_body_est, y_body_est)
         self.buf: Deque[Tuple[float, float, float]] = deque()
 
-        self.sub = self.create_subscription(Odometry, self.in_topic, self.cb_odom, 50)
+        sensor_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=50,
+        )
+        self.sub = self.create_subscription(Odometry, self.in_topic, self.cb_odom, sensor_qos)
 
         self.pub_offset = self.create_publisher(Vector3Stamped, 'offset_xy', 10)
         self.pub_radius = self.create_publisher(Float64, 'radius', 10)
