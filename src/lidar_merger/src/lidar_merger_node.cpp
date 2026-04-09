@@ -1,25 +1,36 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <livox_ros_driver2/msg/custom_msg.hpp>
+#include <livox_ros_driver2/msg/custom_point.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
 #include <Eigen/Dense>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <string>
 
 class LidarMergerNode : public rclcpp::Node
 {
 public:
-  using PointCloud2 = sensor_msgs::msg::PointCloud2;
-  using SyncPolicy  = message_filters::sync_policies::ApproximateTime<PointCloud2, PointCloud2>;
-  using Synchronizer = message_filters::Synchronizer<SyncPolicy>;
+  using PointCloud2  = sensor_msgs::msg::PointCloud2;
+  using CustomMsg    = livox_ros_driver2::msg::CustomMsg;
+  using CustomPoint  = livox_ros_driver2::msg::CustomPoint;
+
+  using SyncPolicyPC2    = message_filters::sync_policies::ApproximateTime<PointCloud2, PointCloud2>;
+  using SyncPC2          = message_filters::Synchronizer<SyncPolicyPC2>;
+  using SyncPolicyCustom = message_filters::sync_policies::ApproximateTime<CustomMsg, CustomMsg>;
+  using SyncCustom       = message_filters::Synchronizer<SyncPolicyCustom>;
 
   LidarMergerNode() : Node("lidar_merger")
   {
     // ── Parameters ──────────────────────────────────────────────────────────
+    // Point-cloud message format: "pointcloud2" or "custom_msg"
+    declare_parameter("cloud_format",    "pointcloud2");
     declare_parameter("primary_topic",   "/livox/lidar_192_168_1_183");
     declare_parameter("secondary_topic", "/livox/lidar_192_168_1_133");
     declare_parameter("output_topic",    "/livox/lidar_merged");
@@ -67,26 +78,23 @@ public:
     print_interval_        = get_parameter("print_interval").as_double();
     clip_secondary_        = get_parameter("clip_secondary").as_bool();
     frame_period_          = 1.0 / get_parameter("lidar_freq").as_double();
+    cloud_format_          = get_parameter("cloud_format").as_string();
 
     // ── Pre-compute 4×4 transform (secondary → primary) ────────────────────
     // Convention: R = Rz(yaw) * Ry(pitch) * Rx(roll)   (extrinsic ZYX)
     build_transform(roll, pitch, yaw, tx, ty, tz);
 
     RCLCPP_INFO(get_logger(),
-      "[lidar_merger] extrinsic RPY=(%.3f, %.3f, %.3f) deg  T=(%.4f, %.4f, %.4f) m",
+      "[lidar_merger] format=%s  extrinsic RPY=(%.3f, %.3f, %.3f) deg  T=(%.4f, %.4f, %.4f) m",
+      cloud_format_.c_str(),
       roll / deg2rad, pitch / deg2rad, yaw / deg2rad, tx, ty, tz);
 
-    // ── Publisher ────────────────────────────────────────────────────────────
-    pub_ = create_publisher<PointCloud2>(output_topic, rclcpp::SensorDataQoS());
-
-    // ── Subscribers (sensor QoS, best-effort) ────────────────────────────────
-    primary_sub_.subscribe(this, primary_topic,   rmw_qos_profile_sensor_data);
-    secondary_sub_.subscribe(this, secondary_topic, rmw_qos_profile_sensor_data);
-
-    // ── Approximate-time synchronizer ────────────────────────────────────────
-    sync_ = std::make_shared<Synchronizer>(SyncPolicy(sync_q), primary_sub_, secondary_sub_);
-    sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(maxd));
-    sync_->registerCallback(&LidarMergerNode::sync_cb, this);
+    // ── Publisher & subscribers ───────────────────────────────────────────
+    if (cloud_format_ == "custom_msg") {
+      setup_custom_msg(primary_topic, secondary_topic, output_topic, sync_q, maxd);
+    } else {
+      setup_pointcloud2(primary_topic, secondary_topic, output_topic, sync_q, maxd);
+    }
 
     RCLCPP_INFO(get_logger(),
       "[lidar_merger] ready  primary=%s  secondary=%s  out=%s"
@@ -99,6 +107,29 @@ public:
   }
 
 private:
+  // ── Setup helpers ────────────────────────────────────────────────────────
+  void setup_pointcloud2(const std::string & pri, const std::string & sec,
+                         const std::string & out, int sync_q, double maxd)
+  {
+    pub_ = create_publisher<PointCloud2>(out, rclcpp::SensorDataQoS());
+    primary_sub_.subscribe(this, pri,   rmw_qos_profile_sensor_data);
+    secondary_sub_.subscribe(this, sec, rmw_qos_profile_sensor_data);
+    sync_pc2_ = std::make_shared<SyncPC2>(SyncPolicyPC2(sync_q), primary_sub_, secondary_sub_);
+    sync_pc2_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(maxd));
+    sync_pc2_->registerCallback(&LidarMergerNode::sync_cb_pc2, this);
+  }
+
+  void setup_custom_msg(const std::string & pri, const std::string & sec,
+                        const std::string & out, int sync_q, double maxd)
+  {
+    pub_custom_ = create_publisher<CustomMsg>(out, rclcpp::SensorDataQoS());
+    primary_custom_sub_.subscribe(this, pri,   rmw_qos_profile_sensor_data);
+    secondary_custom_sub_.subscribe(this, sec, rmw_qos_profile_sensor_data);
+    sync_custom_ = std::make_shared<SyncCustom>(
+      SyncPolicyCustom(sync_q), primary_custom_sub_, secondary_custom_sub_);
+    sync_custom_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(maxd));
+    sync_custom_->registerCallback(&LidarMergerNode::sync_cb_custom, this);
+  }
   // ── Build 4×4 homogeneous transform ─────────────────────────────────────
   void build_transform(double roll, double pitch, double yaw,
                        double tx,   double ty,    double tz)
@@ -116,9 +147,9 @@ private:
     T_(2, 3) = static_cast<float>(tz);
   }
 
-  // ── Synchronised callback ────────────────────────────────────────────────
-  void sync_cb(const PointCloud2::ConstSharedPtr & primary,
-               const PointCloud2::ConstSharedPtr & secondary)
+  // ── Synchronised callback (PointCloud2) ──────────────────────────────────
+  void sync_cb_pc2(const PointCloud2::ConstSharedPtr & primary,
+                   const PointCloud2::ConstSharedPtr & secondary)
   {
     using Clock = std::chrono::steady_clock;
     const auto t0 = Clock::now();
@@ -183,6 +214,70 @@ private:
     stats_.max_ms          = std::max(stats_.max_ms, elapsed_ms);
     stats_.sum_gap_ms     += std::abs(header_gap) * 1e3;
     stats_.sum_lat_ms     += latency_pri * 1e3;
+
+    maybe_print_stats(t_primary);
+  }
+
+  // ── Synchronised callback (CustomMsg) ────────────────────────────────────
+  void sync_cb_custom(const CustomMsg::ConstSharedPtr & primary,
+                      const CustomMsg::ConstSharedPtr & secondary)
+  {
+    using Clock = std::chrono::steady_clock;
+    const auto t0 = Clock::now();
+
+    const int64_t t_pri_ns  = static_cast<int64_t>(primary->timebase);
+    const int64_t t_sec_ns  = static_cast<int64_t>(secondary->timebase);
+    const double  t_primary   = static_cast<double>(t_pri_ns) * 1e-9;
+    const double  t_secondary = static_cast<double>(t_sec_ns) * 1e-9;
+    const double  header_gap  = t_primary - t_secondary;
+    const double  now_wall    = rclcpp::Clock().now().seconds();
+
+    RCLCPP_INFO(get_logger(),
+      "[ts] primary=%.6f  secondary=%.6f  header_gap=%+.4fms  "
+      "latency_pri=%.1fms  latency_sec=%.1fms",
+      t_primary, t_secondary,
+      header_gap  * 1e3,
+      (now_wall - t_primary)   * 1e3,
+      (now_wall - t_secondary) * 1e3);
+
+    // Transform secondary points (xyz) and re-express offsets relative to
+    // the primary's timebase.  Always performed so the merged message has a
+    // single consistent timebase.
+    CustomMsg sec_transformed;
+    transform_custom(*secondary, sec_transformed, t_pri_ns, t_sec_ns);
+
+    // Optionally clip secondary points to the primary frame's time window.
+    // After adjustment sec offsets are in [0, frame_period_ns] for in-window pts.
+    uint32_t clipped_pts = 0;
+    if (clip_secondary_ && sync_point_timestamps_) {
+      const uint64_t win_end_ns = static_cast<uint64_t>(frame_period_ * 1e9);
+      clip_custom(sec_transformed, 0ULL, win_end_ns, clipped_pts);
+    }
+
+    // Merge: primary points first, then transformed secondary points
+    CustomMsg merged = *primary;
+    merged.points.insert(merged.points.end(),
+                         sec_transformed.points.begin(),
+                         sec_transformed.points.end());
+    merged.point_num = static_cast<uint32_t>(merged.points.size());
+
+    pub_custom_->publish(std::move(merged));
+
+    RCLCPP_INFO(get_logger(),
+      "[clip] sec_pts_in=%u  clipped=%u  sec_pts_kept=%zu",
+      secondary->point_num, clipped_pts, sec_transformed.points.size());
+
+    const double elapsed_ms =
+      std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+
+    ++stats_.frames;
+    stats_.total_pts     += merged.point_num;
+    stats_.total_clipped += clipped_pts;
+    stats_.sum_ms         = stats_.sum_ms + elapsed_ms;
+    stats_.min_ms         = std::min(stats_.min_ms, elapsed_ms);
+    stats_.max_ms         = std::max(stats_.max_ms, elapsed_ms);
+    stats_.sum_gap_ms    += std::abs(header_gap) * 1e3;
+    stats_.sum_lat_ms    += (now_wall - t_primary) * 1e3;
 
     maybe_print_stats(t_primary);
   }
@@ -341,11 +436,73 @@ private:
     std::memcpy(out.data.data() + c1.data.size(), c2.data.data(), c2.data.size());
   }
 
+  // ── Transform CustomMsg secondary and re-express offsets vs primary base ─
+  // t_pri_ns / t_sec_ns: epoch timestamps in nanoseconds (from CustomMsg::timebase).
+  // The output cloud uses t_pri_ns as its timebase.
+  // If sync_point_timestamps_=true, per-point offsets are shifted by (t_sec_ns - t_pri_ns)
+  // so they are expressed relative to the primary's timebase.
+  // If false, offsets are left unchanged (hardware-synced case; timebases should match).
+  void transform_custom(const CustomMsg & in, CustomMsg & out,
+                        int64_t t_pri_ns, int64_t t_sec_ns)
+  {
+    out = in;
+    out.timebase = static_cast<uint64_t>(t_pri_ns);
+
+    const float m00 = T_(0,0), m01 = T_(0,1), m02 = T_(0,2), m03 = T_(0,3);
+    const float m10 = T_(1,0), m11 = T_(1,1), m12 = T_(1,2), m13 = T_(1,3);
+    const float m20 = T_(2,0), m21 = T_(2,1), m22 = T_(2,2), m23 = T_(2,3);
+
+    // delta: add to secondary offset_time to get value relative to primary timebase
+    const int64_t delta_ns = t_sec_ns - t_pri_ns;
+
+    for (auto & pt : out.points) {
+      // ── Transform xyz ──────────────────────────────────────────────────
+      const float x = pt.x, y = pt.y, z = pt.z;
+      pt.x = m00*x + m01*y + m02*z + m03;
+      pt.y = m10*x + m11*y + m12*z + m13;
+      pt.z = m20*x + m21*y + m22*z + m23;
+
+      // ── Adjust per-point offset ────────────────────────────────────────
+      if (sync_point_timestamps_) {
+        const int64_t new_off = static_cast<int64_t>(pt.offset_time) + delta_ns;
+        // Clamp to uint32 range; out-of-window points are removed by clip_custom
+        pt.offset_time = static_cast<uint32_t>(
+          std::max(int64_t{0}, std::min(new_off, int64_t{0xFFFFFFFF})));
+      }
+    }
+    out.point_num = static_cast<uint32_t>(out.points.size());
+  }
+
+  // ── Clip CustomMsg cloud to offset window [off_min, off_max] (ns) ────────
+  // Removes points in-place whose offset_time is outside the window.
+  void clip_custom(CustomMsg & cloud, uint64_t off_min, uint64_t off_max,
+                   uint32_t & clipped_out)
+  {
+    auto it = std::remove_if(cloud.points.begin(), cloud.points.end(),
+      [off_min, off_max](const CustomPoint & pt) {
+        const uint64_t off = static_cast<uint64_t>(pt.offset_time);
+        return off < off_min || off > off_max;
+      });
+    clipped_out = static_cast<uint32_t>(
+      std::distance(it, cloud.points.end()));
+    cloud.points.erase(it, cloud.points.end());
+    cloud.point_num = static_cast<uint32_t>(cloud.points.size());
+  }
+
   // ── Members ──────────────────────────────────────────────────────────────
+  std::string cloud_format_{"pointcloud2"};
+
+  // ── PointCloud2 mode ─────────────────────────────────────────────────────
   message_filters::Subscriber<PointCloud2> primary_sub_;
   message_filters::Subscriber<PointCloud2> secondary_sub_;
-  std::shared_ptr<Synchronizer>            sync_;
+  std::shared_ptr<SyncPC2>                 sync_pc2_;
   rclcpp::Publisher<PointCloud2>::SharedPtr pub_;
+
+  // ── CustomMsg mode ────────────────────────────────────────────────────────
+  message_filters::Subscriber<CustomMsg>   primary_custom_sub_;
+  message_filters::Subscriber<CustomMsg>   secondary_custom_sub_;
+  std::shared_ptr<SyncCustom>              sync_custom_;
+  rclcpp::Publisher<CustomMsg>::SharedPtr  pub_custom_;
 
   Eigen::Matrix4f T_{Eigen::Matrix4f::Identity()};
   bool   sync_point_timestamps_{true};

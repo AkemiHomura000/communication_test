@@ -10,6 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(livox_ros_driver2 REQUIRED)
 
 include_directories(include)
 
@@ -25,6 +26,7 @@ ament_target_dependencies(lidar_merger_node
   rclcpp
   sensor_msgs
   message_filters
+  livox_ros_driver2
 )
 
 install(TARGETS lidar_merger_node DESTINATION lib/${PROJECT_NAME})
