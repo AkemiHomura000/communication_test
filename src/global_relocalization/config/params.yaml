@@ -1,0 +1,57 @@
+# ──────────────────────────────────────────────────────────────────────────
+# global_relocalization 参数配置文件
+# ──────────────────────────────────────────────────────────────────────────
+
+global_relocalization_node:
+  ros__parameters:
+
+    # ── 地图 ─────────────────────────────────────────────────────────────
+    # 预建地图 PCD 文件的绝对路径（对应 map 坐标系）。
+    map_pcd_path: "/home/rm/Desktop/communication_test/src/point_lio/PCD/map.pcd"
+
+    # ── 话题 / 坐标系 ──────────────────────────────────────────────────────
+    # 实时点云话题，point_lio 通常发布在 /cloud_registered（lidar_odom 系）。
+    cloud_sub_topic: "/cloud_registered"
+
+    # TF 坐标系名称
+    map_frame: "map"
+    lidar_odom_frame: "lidar_odom"
+
+    # ── 配准参数 ──────────────────────────────────────────────────────────
+    # 地图与实时点云共用的体素降采样分辨率 [m]，越大速度越快但精度越低。
+    downsampling_resolution: 0.5
+
+    # VGICP 体素分辨率 [m]（当前使用 GICP，保留供切换时调参）。
+    voxel_resolution: 1.0
+
+    # GICP 最大点对匹配距离 [m]，超过此距离的点对将被忽略。
+    max_correspondence_distance: 1.5
+
+    # OpenMP 并行线程数。
+    num_threads: 4
+
+    # GICP 最大迭代次数。
+    max_iterations: 30
+
+    # ── 节流 ─────────────────────────────────────────────────────────────
+    # 两次配准之间的最小时间间隔 [s]，期间直接复用上次结果以节省算力。
+    relocalization_interval_sec: 0.5
+
+    # ── 输出 ─────────────────────────────────────────────────────────────
+    # TF 定时器发布频率 [Hz]。
+    # 与配准频率无关，配准再慢 TF 也会以此频率持续广播，避免下游查询超时。
+    tf_publish_hz: 20.0
+
+    # 设为 true 时，每次收敛后同时发布 /tf_static，
+    # 适合机器人基本静止时在 RViz 中保持坐标系显示。
+    publish_static_tf_after_convergence: false
+
+    # ── 点云积分 ──────────────────────────────────────────────────────────
+    # 将最近 N 帧点云合并后再统一降采样，作为配准的 source。
+    # 在走廊、空旷等特征稀疏场景中能显著提升配准鲁棒性。
+    # 设为 1 则退化为单帧配准（不积分）。
+    accumulate_frames: 5
+
+    # 积分后对合并点云进行精细降采样去除重叠点的体素大小 [m]。
+    # 建议设为 downsampling_resolution 的 0.5~0.8 倍，保留更多细节。
+    accumulate_voxel_size: 0.3
