@@ -113,9 +113,11 @@ namespace small_point_lio {
                 estimator.point_lidar_frame = point_lidar_frame.position;
                 estimator.kf.update_point();
 
-                // publish odometry
-                if (parameters.publish_odometry_without_downsample) {
+                // publish odometry at fixed rate
+                double publish_interval = 1.0 / parameters.odometry_publish_rate;
+                if (last_odometry_publish_time < 0.0 || (time_current - last_odometry_publish_time) >= publish_interval) {
                     publish_odometry(time_current);
+                    last_odometry_publish_time = time_current;
                 }
 
                 // map incremental
@@ -144,9 +146,6 @@ namespace small_point_lio {
         }
 
         if (is_publish_odometry) {
-            if (!parameters.publish_odometry_without_downsample) {
-                publish_odometry(time_current);
-            }
             if (!pointcloud_odom_frame.empty()) {
                 if (pointcloud_callback) {
                     pointcloud_callback(pointcloud_odom_frame);

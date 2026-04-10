@@ -87,13 +87,74 @@ namespace small_point_lio {
             odometry_msg.pose.pose.orientation.z = transform_stamped.transform.rotation.z;
             odometry_msg.pose.pose.orientation.w = transform_stamped.transform.rotation.w;
 
-            // TODO it is lidar_odom->lidar_frame, we need to transform it to lidar_odom->base_link
-            // odometry_msg.twist.twist.linear.x = odometry.velocity.x();
-            // odometry_msg.twist.twist.linear.y = odometry.velocity.y();
-            // odometry_msg.twist.twist.linear.z = odometry.velocity.z();
-            // odometry_msg.twist.twist.angular.x = odometry.angular_velocity.x();
-            // odometry_msg.twist.twist.angular.y = odometry.angular_velocity.y();
-            // odometry_msg.twist.twist.angular.z = odometry.angular_velocity.z();
+            // Express base_link velocity in lidar_odom world frame.
+            // odometry.velocity         : velocity of lidar_frame(=IMU) origin, in world frame
+            // odometry.angular_velocity : angular velocity in lidar_frame body frame
+            // odometry.orientation      : R_{lidar->world} (lidar body -> world rotation)
+            //
+            // Full rotation chain:
+            //   omega_world = R_{lidar->world} * omega_lidar
+            //               = R_{base->world} * R_{lidar->base} * omega_lidar
+            //
+            // R_{lidar->base} = R_{base->lidar}^T = tf_base_link_to_lidar_frame.getBasis().transpose()
+            // This correctly maps the 45-deg rolled lidar angular velocity back to base_link axes.
+
+            tf2::Matrix3x3 R_lidar_to_world(tf2::Quaternion(
+                odometry.orientation.x(), odometry.orientation.y(),
+                odometry.orientation.z(), odometry.orientation.w()));
+
+            // R_{base->lidar} from static TF, R_{lidar->base} = transpose
+            tf2::Matrix3x3 R_base_to_lidar = tf_base_link_to_lidar_frame.getBasis();
+            tf2::Matrix3x3 R_lidar_to_base = R_base_to_lidar.transpose();
+
+            tf2::Vector3 omega_lidar(odometry.angular_velocity.x(), odometry.angular_velocity.y(), odometry.angular_velocity.z());
+            // First rotate omega from lidar_frame to base_link frame (undoes the 45-deg roll)
+            tf2::Vector3 omega_base = R_lidar_to_base * omega_lidar;
+            // Then rotate from base_link frame to world frame: R_{base->world} = R_{lidar->world} * R_{lidar->base}^T
+            tf2::Matrix3x3 R_base_to_world = R_lidar_to_world * R_base_to_lidar;
+            tf2::Vector3 omega_world = R_base_to_world * omega_base;
+
+            // Lever-arm compensation:
+            // v_lidar_world is the velocity of lidar_frame origin (not base_link origin).
+            // When rotating around base_link, lidar_frame origin moves with v = omega x r_{base->lidar}.
+            // So: v_base_world = v_lidar_world - R_{lidar->world} * (omega_lidar x r_{lidar->base}^{lidar})
+            //                  = v_lidar_world - R_{lidar->world} * (omega_lidar x r_{lidar->base})
+            // Note: r_{lidar->base} = -r_{base->lidar}, so equivalently:
+            //       v_base_world = v_lidar_world + R_{lidar->world} * (omega_lidar x r_{base->lidar})
+            tf2::Vector3 r_lidar_to_base_in_lidar = tf_base_link_to_lidar_frame.inverse().getOrigin();
+            tf2::Vector3 lever_world = R_lidar_to_world * omega_lidar.cross(r_lidar_to_base_in_lidar);
+
+            tf2::Vector3 v_lidar_world(odometry.velocity.x(), odometry.velocity.y(), odometry.velocity.z());
+            tf2::Vector3 v_base_world = v_lidar_world - lever_world;
+
+            // // === DEBUG OUTPUT (remove after verification) ===
+            // static int debug_count = 0;
+            // if (++debug_count % 50 == 0) {
+            //     RCLCPP_INFO(get_logger(), "--- velocity debug ---");
+            //     RCLCPP_INFO(get_logger(), "v_lidar_world (raw):    x=%.3f y=%.3f z=%.3f  |norm|=%.3f",
+            //         v_lidar_world.x(), v_lidar_world.y(), v_lidar_world.z(), v_lidar_world.length());
+            //     RCLCPP_INFO(get_logger(), "r_lidar_to_base_in_lidar: x=%.3f y=%.3f z=%.3f",
+            //         r_lidar_to_base_in_lidar.x(), r_lidar_to_base_in_lidar.y(), r_lidar_to_base_in_lidar.z());
+            //     RCLCPP_INFO(get_logger(), "omega_lidar: x=%.3f y=%.3f z=%.3f",
+            //         omega_lidar.x(), omega_lidar.y(), omega_lidar.z());
+            //     RCLCPP_INFO(get_logger(), "omega_lidar x r_lidar_to_base (body): x=%.3f y=%.3f z=%.3f",
+            //         omega_lidar.cross(r_lidar_to_base_in_lidar).x(),
+            //         omega_lidar.cross(r_lidar_to_base_in_lidar).y(),
+            //         omega_lidar.cross(r_lidar_to_base_in_lidar).z());
+            //     RCLCPP_INFO(get_logger(), "lever_world:            x=%.3f y=%.3f z=%.3f",
+            //         lever_world.x(), lever_world.y(), lever_world.z());
+            //     RCLCPP_INFO(get_logger(), "v_base_world (result):  x=%.3f y=%.3f z=%.3f  |norm|=%.3f",
+            //         v_base_world.x(), v_base_world.y(), v_base_world.z(), v_base_world.length());
+            // }
+            // // === END DEBUG ===
+
+            odometry_msg.twist.twist.linear.x = v_base_world.x();
+            odometry_msg.twist.twist.linear.y = v_base_world.y();
+            odometry_msg.twist.twist.linear.z = v_base_world.z();
+            // omega_base is angular velocity expressed in base_link body frame (correct axes, z=yaw)
+            odometry_msg.twist.twist.angular.x = omega_base.x();
+            odometry_msg.twist.twist.angular.y = omega_base.y();
+            odometry_msg.twist.twist.angular.z = omega_base.z();
 
             tf_broadcaster->sendTransform(transform_stamped);
             odometry_publisher->publish(odometry_msg);

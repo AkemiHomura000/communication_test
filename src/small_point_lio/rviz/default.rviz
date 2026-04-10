@@ -4,9 +4,11 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /Global Options1
+        - /TF1
         - /PointCloud21
       Splitter Ratio: 0.5
-    Tree Height: 1450
+    Tree Height: 753
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -48,7 +50,7 @@ Visualization Manager:
       Name: TF
       Show Arrows: true
       Show Axes: true
-      Show Names: false
+      Show Names: true
       Tree:
         lidar_odom:
           base_link:
@@ -59,15 +61,15 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 3.44268536567688
-        Min Value: -0.4178072214126587
+        Max Value: 3.460977077484131
+        Min Value: -0.4326243996620178
         Value: true
       Axis: Z
       Channel Name: intensity
       Class: rviz_default_plugins/PointCloud2
       Color: 255; 255; 255
       Color Transformer: AxisColor
-      Decay Time: 30
+      Decay Time: 1
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
@@ -145,33 +147,33 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 21.438764572143555
+      Distance: 7.458592891693115
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.5329309701919556
-        Y: -0.6337601542472839
-        Z: 1.4841655492782593
+        X: 0.22421813011169434
+        Y: 0.0327734500169754
+        Z: 0.3622112572193146
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.3547965288162231
+      Pitch: 0.6447972655296326
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 1.5099968910217285
+      Yaw: 3.0500049591064453
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1764
+  Height: 1067
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000019300000668fc0200000002fb000000100044006900730070006c0061007900730100000056000006680000012600fffffffb0000000a00560069006500770073000000052b00000193000000ec00ffffff0000072a0000066800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd000000010000000000000193000003affc0200000002fb000000100044006900730070006c0061007900730100000056000003af0000012600fffffffb0000000a00560069006500770073000000052b00000193000000ec00ffffff0000072a000003af00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
   Width: 2246

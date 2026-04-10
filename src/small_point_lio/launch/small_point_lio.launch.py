@@ -42,13 +42,13 @@ def generate_launch_description():
         executable="static_transform_publisher",
         arguments=[
             "--x",
-            "0.0",
+            "0.02",
             "--y",
-            "0.15",
+            "0.12",
             "--z",
             "0.0",
             "--roll",
-            "0.0",
+            "-0.785",
             "--pitch",
             "0.0",
             "--yaw",
@@ -63,5 +63,5 @@ def generate_launch_description():
     return LaunchDescription([
         rviz_node,
         small_point_lio_node,
-        # static_base_link_to_livox_frame
+        static_base_link_to_livox_frame
     ])

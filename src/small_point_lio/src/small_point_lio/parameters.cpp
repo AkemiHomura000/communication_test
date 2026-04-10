@@ -53,7 +53,7 @@ namespace small_point_lio {
         match_sqaured = node.declare_parameter<double>("match_sqaured");
 
         // 数据发布
-        publish_odometry_without_downsample = node.declare_parameter<bool>("publish_odometry_without_downsample");
+        odometry_publish_rate = node.declare_parameter<double>("odometry_publish_rate");
     }
 
 }// namespace small_point_lio

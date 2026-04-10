@@ -24,6 +24,7 @@ namespace small_point_lio {
         std::function<void(const std::vector<Eigen::Vector3f> &pointcloud)> pointcloud_callback;
         std::function<void(const common::Odometry &odometry)> odometry_callback;
         bool is_init = false;
+        double last_odometry_publish_time = -1.0;
 
     public:
         Eigen::Matrix<state::value_type, state::DIM, state::DIM> Q;
