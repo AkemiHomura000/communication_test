@@ -1,0 +1,38 @@
+cmake_minimum_required(VERSION 3.0.2)
+project(scancontext_demo)
+
+# Set C++ Standard
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find Packages
+find_package(PCL 1.7 REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(Eigen3 REQUIRED)
+
+# Include Directories
+include_directories(
+    ${PCL_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIR}
+    ${PROJECT_SOURCE_DIR}              # For module/Scancontext/...
+    ${PROJECT_SOURCE_DIR}/module/Scancontext
+)
+
+# Definitions
+add_definitions(${PCL_DEFINITIONS})
+
+# Source files
+set(SOURCE_FILES
+    main.cpp
+    module/Scancontext/Scancontext.cpp
+)
+
+# Executable
+add_executable(scancontext_demo ${SOURCE_FILES})
+
+# Link Libraries
+target_link_libraries(scancontext_demo
+    ${PCL_LIBRARIES}
+    ${OpenCV_LIBRARIES}
+)
