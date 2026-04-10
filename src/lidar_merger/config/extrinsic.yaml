@@ -9,6 +9,12 @@
 
 lidar_merger:
   ros__parameters:
+    # ── Single-LiDAR mode ──────────────────────────────────────────────────
+    # "none"      → dual-LiDAR merge (default)
+    # "primary"   → subscribe only to primary_topic; forward as-is
+    # "secondary" → subscribe only to secondary_topic; apply extrinsic transform
+    single_lidar: "secondary"
+
     # ── Point-cloud message format ─────────────────────────────────────────
     # "pointcloud2" – sensor_msgs/msg/PointCloud2  (default, e.g. XYZIRT layout)
     # "custom_msg"  – livox_ros_driver2/msg/CustomMsg  (Livox native format)
@@ -17,8 +23,8 @@ lidar_merger:
     # ── Topic names ────────────────────────────────────────────────────────
     # livox_ros_driver2 typically names topics by LiDAR IP address.
     # Adjust to match your driver configuration.
-    primary_topic:   "/livox/lidar_192_168_1_183_relay"
-    secondary_topic: "/livox/lidar_192_168_1_133_relay"
+    primary_topic:   "/livox/lidar_192_168_1_183"
+    secondary_topic: "/livox/lidar_192_168_1_133"
     output_topic:    "/livox/lidar_merged"
 
     # ── Extrinsic parameters ───────────────────────────────────────────────
@@ -39,7 +45,7 @@ lidar_merger:
     # ApproximateTime policy parameters.
     # Set to < half the LiDAR frame period to ensure dropped frames are
     # cleanly discarded rather than incorrectly paired with a neighbor frame.
-    # MID360 @ 10Hz → frame period=100ms → safe value ≤ 50ms.
+    # MID360 @ 20Hz → frame period=50ms → safe value ≤ 25ms.
     sync_queue_size: 10    # message queue depth per topic
     max_delay:       0.025  # 25ms = half of 50ms frame period
 

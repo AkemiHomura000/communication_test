@@ -30,6 +30,7 @@ public:
   {
     // ── Parameters ──────────────────────────────────────────────────────────
     // Point-cloud message format: "pointcloud2" or "custom_msg"
+    declare_parameter("single_lidar",    "none");  // "none"|"primary"|"secondary"
     declare_parameter("cloud_format",    "pointcloud2");
     declare_parameter("primary_topic",   "/livox/lidar_192_168_1_183");
     declare_parameter("secondary_topic", "/livox/lidar_192_168_1_133");
@@ -79,6 +80,7 @@ public:
     clip_secondary_        = get_parameter("clip_secondary").as_bool();
     frame_period_          = 1.0 / get_parameter("lidar_freq").as_double();
     cloud_format_          = get_parameter("cloud_format").as_string();
+    single_lidar_          = get_parameter("single_lidar").as_string();
 
     // ── Pre-compute 4×4 transform (secondary → primary) ────────────────────
     // Convention: R = Rz(yaw) * Ry(pitch) * Rx(roll)   (extrinsic ZYX)
@@ -91,15 +93,26 @@ public:
 
     // ── Publisher & subscribers ───────────────────────────────────────────
     if (cloud_format_ == "custom_msg") {
-      setup_custom_msg(primary_topic, secondary_topic, output_topic, sync_q, maxd);
+      if (single_lidar_ == "none") {
+        setup_custom_msg(primary_topic, secondary_topic, output_topic, sync_q, maxd);
+      } else {
+        const auto & topic = (single_lidar_ == "secondary") ? secondary_topic : primary_topic;
+        setup_single_custom_msg(topic, output_topic);
+      }
     } else {
-      setup_pointcloud2(primary_topic, secondary_topic, output_topic, sync_q, maxd);
+      if (single_lidar_ == "none") {
+        setup_pointcloud2(primary_topic, secondary_topic, output_topic, sync_q, maxd);
+      } else {
+        const auto & topic = (single_lidar_ == "secondary") ? secondary_topic : primary_topic;
+        setup_single_pc2(topic, output_topic);
+      }
     }
 
     RCLCPP_INFO(get_logger(),
       "[lidar_merger] ready  primary=%s  secondary=%s  out=%s"
-      "  sync_point_ts=%s  clip=%s(%.1fHz)  print_interval=%.1fs",
+      "  single_lidar=%s  sync_point_ts=%s  clip=%s(%.1fHz)  print_interval=%.1fs",
       primary_topic.c_str(), secondary_topic.c_str(), output_topic.c_str(),
+      single_lidar_.c_str(),
       sync_point_timestamps_ ? "true" : "false",
       clip_secondary_ ? "true" : "false",
       1.0 / frame_period_,
@@ -129,6 +142,37 @@ private:
       SyncPolicyCustom(sync_q), primary_custom_sub_, secondary_custom_sub_);
     sync_custom_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(maxd));
     sync_custom_->registerCallback(&LidarMergerNode::sync_cb_custom, this);
+  }
+
+  // ── Single-LiDAR setup (no synchronisation needed) ───────────────────────
+  void setup_single_custom_msg(const std::string & topic, const std::string & out)
+  {
+    pub_custom_ = create_publisher<CustomMsg>(out, rclcpp::SensorDataQoS());
+    if (single_lidar_ == "secondary") {
+      single_custom_sub_ = create_subscription<CustomMsg>(
+        topic, rclcpp::SensorDataQoS(),
+        std::bind(&LidarMergerNode::single_secondary_cb_custom, this, std::placeholders::_1));
+    } else {
+      // primary: forward as-is
+      single_custom_sub_ = create_subscription<CustomMsg>(
+        topic, rclcpp::SensorDataQoS(),
+        [this](const CustomMsg::ConstSharedPtr & msg) { pub_custom_->publish(*msg); });
+    }
+  }
+
+  void setup_single_pc2(const std::string & topic, const std::string & out)
+  {
+    pub_ = create_publisher<PointCloud2>(out, rclcpp::SensorDataQoS());
+    if (single_lidar_ == "secondary") {
+      single_pc2_sub_ = create_subscription<PointCloud2>(
+        topic, rclcpp::SensorDataQoS(),
+        std::bind(&LidarMergerNode::single_secondary_cb_pc2, this, std::placeholders::_1));
+    } else {
+      // primary: forward as-is
+      single_pc2_sub_ = create_subscription<PointCloud2>(
+        topic, rclcpp::SensorDataQoS(),
+        [this](const PointCloud2::ConstSharedPtr & msg) { pub_->publish(*msg); });
+    }
   }
   // ── Build 4×4 homogeneous transform ─────────────────────────────────────
   void build_transform(double roll, double pitch, double yaw,
@@ -232,13 +276,19 @@ private:
     const double  header_gap  = t_primary - t_secondary;
     const double  now_wall    = rclcpp::Clock().now().seconds();
 
+    // Diff between ROS header.stamp and timebase — must be ~0 for PointLIO's
+    // pcl_beg_time (= header.stamp) to align with per-point offset_time.
+    const double pri_stamp_vs_timebase_ms =
+        (rclcpp::Time(primary->header.stamp).seconds() - t_primary) * 1e3;
+
     RCLCPP_INFO(get_logger(),
       "[ts] primary=%.6f  secondary=%.6f  header_gap=%+.4fms  "
-      "latency_pri=%.1fms  latency_sec=%.1fms",
+      "latency_pri=%.1fms  latency_sec=%.1fms  stamp_vs_timebase=%+.3fms",
       t_primary, t_secondary,
       header_gap  * 1e3,
       (now_wall - t_primary)   * 1e3,
-      (now_wall - t_secondary) * 1e3);
+      (now_wall - t_secondary) * 1e3,
+      pri_stamp_vs_timebase_ms);
 
     // Transform secondary points (xyz) and re-express offsets relative to
     // the primary's timebase.  Always performed so the merged message has a
@@ -261,6 +311,22 @@ private:
                          sec_transformed.points.end());
     merged.point_num = static_cast<uint32_t>(merged.points.size());
 
+    // Align header.stamp to timebase so that PointLIO's pcl_beg_time
+    // (derived from header.stamp) matches the per-point offset_time reference.
+    // Livox driver sets timebase = first-point absolute time (ns);
+    // header.stamp may differ by a software scheduling offset.
+    merged.header.stamp = rclcpp::Time(static_cast<uint64_t>(t_pri_ns), RCL_ROS_TIME);
+
+    // Sort merged points by offset_time so PointLIO's point-by-point IMU
+    // propagation processes them in chronological order.  Without this,
+    // secondary points (offset_time 0→50ms appended after primary points)
+    // cause time_current to jump backwards, stalling IMU integration and
+    // producing yaw distortion during rotation.
+    std::sort(merged.points.begin(), merged.points.end(),
+      [](const CustomPoint & a, const CustomPoint & b) {
+        return a.offset_time < b.offset_time;
+      });
+
     pub_custom_->publish(std::move(merged));
 
     RCLCPP_INFO(get_logger(),
@@ -280,6 +346,50 @@ private:
     stats_.sum_lat_ms    += (now_wall - t_primary) * 1e3;
 
     maybe_print_stats(t_primary);
+  }
+
+  // ── Single-LiDAR callbacks (secondary only; primary is a lambda) ─────────
+  void single_secondary_cb_custom(const CustomMsg::ConstSharedPtr & msg)
+  {
+    using Clock = std::chrono::steady_clock;
+    const auto t0 = Clock::now();
+
+    // Transform xyz into primary frame; no timestamp adjustment (t_pri = t_sec → delta=0)
+    const int64_t t_ns = static_cast<int64_t>(msg->timebase);
+    CustomMsg out;
+    transform_custom(*msg, out, t_ns, t_ns);
+
+    pub_custom_->publish(std::move(out));
+
+    const double elapsed_ms =
+      std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+    ++stats_.frames;
+    stats_.total_pts += msg->point_num;
+    stats_.sum_ms = stats_.sum_ms + elapsed_ms;
+    stats_.min_ms = std::min(stats_.min_ms, elapsed_ms);
+    stats_.max_ms = std::max(stats_.max_ms, elapsed_ms);
+    maybe_print_stats(static_cast<double>(t_ns) * 1e-9);
+  }
+
+  void single_secondary_cb_pc2(const PointCloud2::ConstSharedPtr & msg)
+  {
+    using Clock = std::chrono::steady_clock;
+    const auto t0 = Clock::now();
+
+    PointCloud2 out;
+    transform_cloud(*msg, out, 0.0);   // transform xyz only, no timestamp shift
+    out.header = msg->header;
+
+    pub_->publish(std::move(out));
+
+    const double elapsed_ms =
+      std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+    ++stats_.frames;
+    stats_.total_pts += msg->width * msg->height;
+    stats_.sum_ms = stats_.sum_ms + elapsed_ms;
+    stats_.min_ms = std::min(stats_.min_ms, elapsed_ms);
+    stats_.max_ms = std::max(stats_.max_ms, elapsed_ms);
+    maybe_print_stats(rclcpp::Time(msg->header.stamp).seconds());
   }
 
   // ── Periodic statistics summary ──────────────────────────────────────────
@@ -491,18 +601,21 @@ private:
 
   // ── Members ──────────────────────────────────────────────────────────────
   std::string cloud_format_{"pointcloud2"};
+  std::string single_lidar_{"none"};   // "none" | "primary" | "secondary"
 
   // ── PointCloud2 mode ─────────────────────────────────────────────────────
   message_filters::Subscriber<PointCloud2> primary_sub_;
   message_filters::Subscriber<PointCloud2> secondary_sub_;
   std::shared_ptr<SyncPC2>                 sync_pc2_;
   rclcpp::Publisher<PointCloud2>::SharedPtr pub_;
+  rclcpp::Subscription<PointCloud2>::SharedPtr single_pc2_sub_;
 
   // ── CustomMsg mode ────────────────────────────────────────────────────────
   message_filters::Subscriber<CustomMsg>   primary_custom_sub_;
   message_filters::Subscriber<CustomMsg>   secondary_custom_sub_;
   std::shared_ptr<SyncCustom>              sync_custom_;
   rclcpp::Publisher<CustomMsg>::SharedPtr  pub_custom_;
+  rclcpp::Subscription<CustomMsg>::SharedPtr single_custom_sub_;
 
   Eigen::Matrix4f T_{Eigen::Matrix4f::Identity()};
   bool   sync_point_timestamps_{true};

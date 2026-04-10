@@ -7,6 +7,7 @@
 
 #include <malloc.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/kdtree/kdtree_flann.h>
 #include <pcl_conversions/pcl_conversions.h>
 
 #include "ament_index_cpp/get_package_prefix.hpp"
@@ -432,6 +433,28 @@ void LaserMappingNode::downsampleAndSort()
   {
     downSizeFilterSurf_.setInputCloud(feats_undistort_);
     downSizeFilterSurf_.filter(*estimator_.feats_down_body);
+
+    // ── Restore per-point timestamps after VoxelGrid downsampling ──────────
+    // VoxelGrid averages ALL fields (including curvature) across all points in
+    // each voxel.  With two LiDARs, the same voxel can hold a primary point at
+    // T1 and a secondary point at T2 where |T1-T2| may reach the full frame
+    // period (~50 ms).  The averaged curvature gives a phantom timestamp that
+    // does not correspond to any real measurement, corrupting PointLIO's
+    // point-by-point IMU propagation and causing yaw distortion during rotation.
+    //
+    // Fix: for each downsampled point, find its nearest original point in
+    // feats_undistort_ and restore that point's curvature (= actual offset_time).
+    {
+      pcl::KdTreeFLANN<PointType> kd;
+      kd.setInputCloud(feats_undistort_);
+      std::vector<int>   nn_idx(1);
+      std::vector<float> nn_sq(1);
+      for (auto & pt : estimator_.feats_down_body->points)
+      {
+        if (kd.nearestKSearch(pt, 1, nn_idx, nn_sq) > 0)
+          pt.curvature = feats_undistort_->points[nn_idx[0]].curvature;
+      }
+    }
   }
   else
   {
