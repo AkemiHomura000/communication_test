@@ -44,26 +44,23 @@ Visualization Manager:
           Value: true
         livox_frame:
           Value: true
-        map:
-          Value: true
       Marker Scale: 1
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: false
       Tree:
-        map:
-          lidar_odom:
-            base_link:
-              livox_frame:
-                {}
+        lidar_odom:
+          base_link:
+            livox_frame:
+              {}
       Update Interval: 0
       Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 3.2850987911224365
-        Min Value: -0.2624066174030304
+        Max Value: 3.44268536567688
+        Min Value: -0.4178072214126587
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -148,7 +145,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 3.9167823791503906
+      Distance: 21.438764572143555
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -163,10 +160,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.1897966861724854
+      Pitch: 1.3547965288162231
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 4.815005779266357
+      Yaw: 1.5099968910217285
     Saved: ~
 Window Geometry:
   Displays:

@@ -13,7 +13,7 @@ lidar_merger:
     # "none"      → dual-LiDAR merge (default)
     # "primary"   → subscribe only to primary_topic; forward as-is
     # "secondary" → subscribe only to secondary_topic; apply extrinsic transform
-    single_lidar: "secondary"
+    single_lidar: "none"
 
     # ── Point-cloud message format ─────────────────────────────────────────
     # "pointcloud2" – sensor_msgs/msg/PointCloud2  (default, e.g. XYZIRT layout)

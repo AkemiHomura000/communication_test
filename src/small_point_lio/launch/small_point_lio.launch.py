@@ -63,5 +63,5 @@ def generate_launch_description():
     return LaunchDescription([
         rviz_node,
         small_point_lio_node,
-        static_base_link_to_livox_frame
+        # static_base_link_to_livox_frame
     ])
