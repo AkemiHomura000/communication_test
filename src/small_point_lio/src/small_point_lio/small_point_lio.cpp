@@ -5,8 +5,15 @@
  */
 
 #include "small_point_lio.h"
+#include <chrono>
 
 namespace small_point_lio {
+
+    using Clock = std::chrono::steady_clock;
+    using ms_t  = std::chrono::duration<double, std::milli>;
+    static double now_ms() {
+        return ms_t(Clock::now().time_since_epoch()).count();
+    }
 
     SmallPointLio::SmallPointLio(rclcpp::Node &node) {
         // init param
@@ -83,12 +90,14 @@ namespace small_point_lio {
         // judge we should do point update or imu update
         bool is_publish_odometry = !preprocess.imu_deque.empty() && !preprocess.dense_point_deque.empty() && !preprocess.point_deque.empty() &&
                                    preprocess.imu_deque.front().timestamp < preprocess.point_deque.back().timestamp;
+        auto _frame_t0 = Clock::now();
         while (!preprocess.imu_deque.empty() && !preprocess.dense_point_deque.empty() && !preprocess.point_deque.empty()) {
             const common::Point &point_lidar_frame = preprocess.point_deque.front();
             const common::Point &dense_point_lidar_frame = preprocess.dense_point_deque.front();
             const common::ImuMsg &imu_msg = preprocess.imu_deque.front();
             if (dense_point_lidar_frame.timestamp < point_lidar_frame.timestamp && dense_point_lidar_frame.timestamp < imu_msg.timestamp) {
                 // collect lidar_odom frame pointcloud
+                auto _t0 = Clock::now();
                 Eigen::Matrix<state::value_type, 3, 1> dense_point_imu_frame;
                 if (parameters.extrinsic_est_en) {
                     dense_point_imu_frame = estimator.kf.x.offset_R_L_I * dense_point_lidar_frame.position.cast<state::value_type>() + estimator.kf.x.offset_T_L_I;
@@ -96,16 +105,29 @@ namespace small_point_lio {
                     dense_point_imu_frame = estimator.Lidar_R_wrt_IMU * dense_point_lidar_frame.position.cast<state::value_type>() + estimator.Lidar_T_wrt_IMU;
                 }
                 pointcloud_odom_frame.emplace_back((estimator.kf.x.rotation * dense_point_imu_frame + estimator.kf.x.position).cast<float>());
-
+                frame_dense_collect_.add(ms_t(Clock::now() - _t0).count());
                 preprocess.dense_point_deque.pop_front();
             } else if (point_lidar_frame.timestamp < imu_msg.timestamp) {
                 // point update
                 if (point_lidar_frame.timestamp < time_current) {
+                    double lag = time_current - point_lidar_frame.timestamp;
+                    if (lag > 0.3) {
+                        RCLCPP_WARN(rclcpp::get_logger("small_point_lio"),
+                            "[point] stale point discarded: lag=%.3fs (timestamp=%.6f current=%.6f)",
+                            lag, point_lidar_frame.timestamp, time_current);
+                    }
                     preprocess.point_deque.pop_front();
                     continue;
                 }
+                double jump = point_lidar_frame.timestamp - time_current;
+                if (jump > 0.3) {
+                    RCLCPP_WARN(rclcpp::get_logger("small_point_lio"),
+                        "[point] large timestamp jump: %.3fs (timestamp=%.6f current=%.6f)",
+                        jump, point_lidar_frame.timestamp, time_current);
+                }
                 time_current = point_lidar_frame.timestamp;
 
+                auto _pt0 = Clock::now();
                 // predict
                 estimator.kf.predict_state(time_current);
 
@@ -122,16 +144,30 @@ namespace small_point_lio {
 
                 // map incremental
                 estimator.ivox->add_point(estimator.point_odom_frame);
+                frame_point_step_.add(ms_t(Clock::now() - _pt0).count());
 
                 preprocess.point_deque.pop_front();
             } else {
                 // imu update
                 if (imu_msg.timestamp < time_current) {
+                    double lag = time_current - imu_msg.timestamp;
+                    if (lag > 0.3) {
+                        RCLCPP_WARN(rclcpp::get_logger("small_point_lio"),
+                            "[imu] stale imu discarded: lag=%.3fs (timestamp=%.6f current=%.6f)",
+                            lag, imu_msg.timestamp, time_current);
+                    }
                     preprocess.imu_deque.pop_front();
                     continue;
                 }
+                double jump = imu_msg.timestamp - time_current;
+                if (jump > 0.3) {
+                    RCLCPP_WARN(rclcpp::get_logger("small_point_lio"),
+                        "[imu] large timestamp jump: %.3fs (timestamp=%.6f current=%.6f)",
+                        jump, imu_msg.timestamp, time_current);
+                }
                 time_current = imu_msg.timestamp;
 
+                auto _it0 = Clock::now();
                 // predict
                 estimator.kf.predict_state(time_current);
                 estimator.kf.predict_cov(time_current, Q);
@@ -140,12 +176,46 @@ namespace small_point_lio {
                 estimator.angular_velocity = imu_msg.angular_velocity.cast<state::value_type>();
                 estimator.linear_acceleration = imu_msg.linear_acceleration.cast<state::value_type>();
                 estimator.kf.update_imu();
+                frame_imu_step_.add(ms_t(Clock::now() - _it0).count());
 
                 preprocess.imu_deque.pop_front();
             }
         }
 
         if (is_publish_odometry) {
+            double compute_ms = ms_t(Clock::now() - _frame_t0).count();
+            double now_wall = now_ms();
+            double frame_interval = (last_frame_wall_time_ms_ < 0.0) ? compute_ms : (now_wall - last_frame_wall_time_ms_);
+            last_frame_wall_time_ms_ = now_wall;
+
+            const char *fmt =
+                "[frame] compute=%.2fms interval=%.1fms | "
+                "point_step: total=%.2fms n=%d | "
+                "imu_step: total=%.2fms n=%d | "
+                "dense_collect: total=%.2fms n=%d";
+
+            if (compute_ms >= frame_interval) {
+                RCLCPP_WARN(rclcpp::get_logger("small_point_lio"), fmt,
+                    compute_ms, frame_interval,
+                    frame_point_step_.total_ms,    frame_point_step_.count,
+                    frame_imu_step_.total_ms,      frame_imu_step_.count,
+                    frame_dense_collect_.total_ms, frame_dense_collect_.count);
+            } else {
+                bool should_log = (last_info_log_wall_time_ms_ < 0.0) ||
+                                  (now_wall - last_info_log_wall_time_ms_ >= 1000.0);
+                if (should_log) {
+                    RCLCPP_INFO(rclcpp::get_logger("small_point_lio"), fmt,
+                        compute_ms, frame_interval,
+                        frame_point_step_.total_ms,    frame_point_step_.count,
+                        frame_imu_step_.total_ms,      frame_imu_step_.count,
+                        frame_dense_collect_.total_ms, frame_dense_collect_.count);
+                    last_info_log_wall_time_ms_ = now_wall;
+                }
+            }
+            frame_point_step_.reset();
+            frame_imu_step_.reset();
+            frame_dense_collect_.reset();
+
             if (!pointcloud_odom_frame.empty()) {
                 if (pointcloud_callback) {
                     pointcloud_callback(pointcloud_odom_frame);

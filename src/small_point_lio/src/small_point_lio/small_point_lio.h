@@ -26,6 +26,19 @@ namespace small_point_lio {
         bool is_init = false;
         double last_odometry_publish_time = -1.0;
 
+        // timing stats (ms, per-frame)
+        struct FrameTimingStats {
+            double total_ms = 0;
+            int count = 0;
+            void add(double ms) { total_ms += ms; ++count; }
+            void reset() { total_ms = 0; count = 0; }
+        };
+        FrameTimingStats frame_point_step_;
+        FrameTimingStats frame_imu_step_;
+        FrameTimingStats frame_dense_collect_;
+        double last_frame_wall_time_ms_ = -1.0;
+        double last_info_log_wall_time_ms_ = -1.0;
+
     public:
         Eigen::Matrix<state::value_type, state::DIM, state::DIM> Q;
 
