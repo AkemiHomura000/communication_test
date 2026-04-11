@@ -168,13 +168,13 @@ namespace small_point_lio {
             tf_broadcaster->sendTransform(transform_stamped);
             odometry_publisher->publish(odometry_msg);
 
-            geometry_msgs::msg::PoseStamped pose_stamped;
-            pose_stamped.header.stamp = time_msg;
-            pose_stamped.header.frame_id = "lidar_odom";
-            pose_stamped.pose = odometry_msg.pose.pose;
-            path_msg.header.stamp = time_msg;
-            path_msg.poses.push_back(pose_stamped);
-            path_publisher->publish(path_msg);
+            // geometry_msgs::msg::PoseStamped pose_stamped;
+            // pose_stamped.header.stamp = time_msg;
+            // pose_stamped.header.frame_id = "lidar_odom";
+            // pose_stamped.pose = odometry_msg.pose.pose;
+            // path_msg.header.stamp = time_msg;
+            // path_msg.poses.push_back(pose_stamped);
+            // path_publisher->publish(path_msg);
         });
         small_point_lio->set_pointcloud_callback([this, save_pcd, lidar_frame](const std::vector<Eigen::Vector3f> &pointcloud) {
             if (pointcloud_publisher->get_subscription_count() > 0) {

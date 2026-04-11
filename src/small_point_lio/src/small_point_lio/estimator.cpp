@@ -21,7 +21,7 @@ namespace small_point_lio {
     }
 
     void Estimator::reset() {
-        ivox = std::make_shared<SmallIVox>(parameters->map_resolution, 500000);
+        ivox = std::make_shared<SmallIVox>(parameters->map_resolution, 1000000);
         kf.P = Eigen::Matrix<state::value_type, state::DIM, state::DIM>::Identity() * 0.01;
         kf.P.block<3, 3>(state::gravity_index, state::gravity_index).diagonal().fill(0.0001);
         kf.P.block<3, 3>(state::bg_index, state::bg_index).diagonal().fill(0.001);
