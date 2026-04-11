@@ -26,7 +26,12 @@ namespace small_point_lio {
         for (size_t i = 0; i < pointcloud.size(); i++) {
             const auto &point = pointcloud[i];
             if (point.timestamp >= last_timestamp_dense_point) {
-                dense_points.push_back(point);
+                float dense_dist = point.position.squaredNorm();
+                if (
+                    dense_dist >= parameters->dense_min_distance_squared &&
+                    dense_dist <= parameters->dense_max_distance_squared) {
+                    dense_points.push_back(point);
+                }
             }
             if (i % parameters->point_filter_num != 0) {
                 continue;
@@ -35,9 +40,9 @@ namespace small_point_lio {
                 continue;
             }
             float dist = point.position.squaredNorm();
-            if(point.position[0] < 0.4&&point.position[1] < 0.4) {
-                continue;
-            }
+            // if(point.position[0] < 0.4&&point.position[1] < 0.4) {
+            //     continue;
+            // }
             if (dist < parameters->min_distance_squared || dist > parameters->max_distance_squared) {
                 continue;
             }

@@ -26,6 +26,7 @@ namespace small_point_lio {
         bool is_init = false;
         double last_odometry_publish_time = -1.0;
 
+
         // timing stats (ms, per-frame)
         struct FrameTimingStats {
             double total_ms = 0;

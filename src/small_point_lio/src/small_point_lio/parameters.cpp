@@ -15,6 +15,10 @@ namespace small_point_lio {
         auto max_distance = node.declare_parameter<float>("max_distance");
         min_distance_squared = min_distance * min_distance;
         max_distance_squared = max_distance * max_distance;
+        auto dense_min_distance = node.declare_parameter<float>("dense_min_distance", min_distance);
+        auto dense_max_distance = node.declare_parameter<float>("dense_max_distance", max_distance);
+        dense_min_distance_squared = dense_min_distance * dense_min_distance;
+        dense_max_distance_squared = dense_max_distance * dense_max_distance;
         space_downsample = node.declare_parameter<bool>("space_downsample");
         space_downsample_leaf_size = node.declare_parameter<float>("space_downsample_leaf_size");
 
