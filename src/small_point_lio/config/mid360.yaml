@@ -24,7 +24,7 @@ small_point_lio:
         acc_norm: 1.0                              # IMU的加速度模长
 
         # 地图
-        map_resolution: 0.2                        # 地图分辨率
+        map_resolution: 0.3                        # 地图分辨率
         init_map_size: 10                          # 接收到多少个点才初始化地图
  
         # 雷达与IMU相对位姿
