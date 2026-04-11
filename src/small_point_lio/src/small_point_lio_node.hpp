@@ -11,6 +11,8 @@
 #include "small_point_lio/small_point_lio.h"
 #include "util/pointcloud_mapping.h"
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <pch.h>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -38,9 +40,16 @@ namespace small_point_lio {
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr map_save_trigger;
         common::Odometry last_odometry;
         std::unique_ptr<util::PointcloudMapping> pointcloud_mapping;
+        std::shared_ptr<rclcpp::Publisher<nav_msgs::msg::Path>> path_publisher;
+        nav_msgs::msg::Path path_msg;
+        bool save_pcd_ = false;
+        bool pcd_tf_cached_ = false;
+        Eigen::Matrix3f R_pcd_ = Eigen::Matrix3f::Identity();
+        Eigen::Vector3f T_pcd_ = Eigen::Vector3f::Zero();
 
     public:
         explicit SmallPointLioNode(const rclcpp::NodeOptions &options);
+        ~SmallPointLioNode();
     };
 
 }// namespace small_point_lio

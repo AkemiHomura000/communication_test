@@ -22,9 +22,12 @@ namespace small_point_lio {
         std::string lidar_type = declare_parameter<std::string>("lidar_type");
         std::string lidar_frame = declare_parameter<std::string>("lidar_frame");
         bool save_pcd = declare_parameter<bool>("save_pcd");
+        save_pcd_ = save_pcd;
         small_point_lio = std::make_unique<small_point_lio::SmallPointLio>(*this);
-        odometry_publisher = create_publisher<nav_msgs::msg::Odometry>("/Odometry", 1000);
+        odometry_publisher = create_publisher<nav_msgs::msg::Odometry>("/Odometry", rclcpp::SensorDataQoS());
         pointcloud_publisher = create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 1000);
+        path_publisher = create_publisher<nav_msgs::msg::Path>("/path", 1000);
+        path_msg.header.frame_id = "lidar_odom";
         tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
         tf_buffer = std::make_unique<tf2_ros::Buffer>(get_clock());
         tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
@@ -44,7 +47,13 @@ namespace small_point_lio {
                     RCLCPP_INFO(rclcpp::get_logger("small_point_lio"), "waiting for pcd saving ...");
                     auto pointcloud_to_save = std::make_shared<std::vector<Eigen::Vector3f>>();
                     *pointcloud_to_save = pointcloud_mapping->get_points();
-                    std::thread([pointcloud_to_save, lidar_frame]() {
+                    bool tf_ready = pcd_tf_cached_;
+                    Eigen::Matrix3f R = R_pcd_;
+                    Eigen::Vector3f T = T_pcd_;
+                    std::thread([pointcloud_to_save, tf_ready, R, T]() {
+                        if (tf_ready) {
+                            for (auto &p : *pointcloud_to_save) { p = R * p + T; }
+                        }
                         io::pcd::write_pcd(ROOT_DIR + "/pcd/scan.pcd", *pointcloud_to_save);
                         RCLCPP_INFO(rclcpp::get_logger("small_point_lio"), "save pcd success");
                     }).detach();
@@ -158,6 +167,14 @@ namespace small_point_lio {
 
             tf_broadcaster->sendTransform(transform_stamped);
             odometry_publisher->publish(odometry_msg);
+
+            geometry_msgs::msg::PoseStamped pose_stamped;
+            pose_stamped.header.stamp = time_msg;
+            pose_stamped.header.frame_id = "lidar_odom";
+            pose_stamped.pose = odometry_msg.pose.pose;
+            path_msg.header.stamp = time_msg;
+            path_msg.poses.push_back(pose_stamped);
+            path_publisher->publish(path_msg);
         });
         small_point_lio->set_pointcloud_callback([this, save_pcd, lidar_frame](const std::vector<Eigen::Vector3f> &pointcloud) {
             if (pointcloud_publisher->get_subscription_count() > 0) {
@@ -231,6 +248,22 @@ namespace small_point_lio {
                 pointcloud_publisher->publish(msg);
             }
             if (save_pcd) {
+                if (!pcd_tf_cached_) {
+                    try {
+                        auto tf = tf_buffer->lookupTransform("base_link", lidar_frame, tf2::TimePointZero);
+                        T_pcd_ << static_cast<float>(tf.transform.translation.x),
+                                  static_cast<float>(tf.transform.translation.y),
+                                  static_cast<float>(tf.transform.translation.z);
+                        R_pcd_ = Eigen::Quaternionf(
+                            static_cast<float>(tf.transform.rotation.w),
+                            static_cast<float>(tf.transform.rotation.x),
+                            static_cast<float>(tf.transform.rotation.y),
+                            static_cast<float>(tf.transform.rotation.z)).toRotationMatrix();
+                        pcd_tf_cached_ = true;
+                    } catch (tf2::TransformException &ex) {
+                        RCLCPP_WARN_ONCE(rclcpp::get_logger("small_point_lio"), "PCD TF not yet available: %s", ex.what());
+                    }
+                }
                 for (const auto &point: pointcloud) {
                     pointcloud_mapping->add_point(point);
                 }
@@ -270,6 +303,18 @@ namespace small_point_lio {
                     small_point_lio->on_imu_callback(imu_msg);
                     small_point_lio->handle_once();
                 });
+    }
+
+    SmallPointLioNode::~SmallPointLioNode() {
+        if (save_pcd_ && pointcloud_mapping) {
+            RCLCPP_INFO(rclcpp::get_logger("small_point_lio"), "saving pcd on shutdown ...");
+            auto points = pointcloud_mapping->get_points();
+            if (pcd_tf_cached_) {
+                for (auto &p : points) { p = R_pcd_ * p + T_pcd_; }
+            }
+            io::pcd::write_pcd(ROOT_DIR + "/pcd/scan.pcd", points);
+            RCLCPP_INFO(rclcpp::get_logger("small_point_lio"), "save pcd success");
+        }
     }
 
 }// namespace small_point_lio
